@@ -138,17 +138,17 @@ def get_google_credentials_dict() -> dict:
 
 def _get_google_credentials():
     creds_dict = get_google_credentials_dict()
-    scopes = [
-        "https://www.googleapis.com/auth/drive",
-        "https://www.googleapis.com/auth/spreadsheets"
-    ]
     
     if "refresh_token" in creds_dict:
-        # User OAuth2 Token 格式 (例如來自 n8n 匯出或 OAuth Playground)
+        # User OAuth2 Token 格式：不要強制覆蓋 scopes，以免跟原本授權的範圍起衝突導致 invalid_scope
         from google.oauth2.credentials import Credentials
-        return Credentials.from_authorized_user_info(creds_dict, scopes=scopes)
+        return Credentials.from_authorized_user_info(creds_dict)
     else:
-        # Service Account 格式
+        # Service Account 格式：需要明確指定 scopes
+        scopes = [
+            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/spreadsheets"
+        ]
         return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
 
 
