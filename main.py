@@ -117,15 +117,33 @@ def save_message(user_id: str, role: str, content: str):
 # Google 服務整合 (Drive & Sheets)
 # ══════════════════════════════════════════════════════════════════════════════
 def get_google_credentials_dict() -> dict:
-    """安全解析 GCP Service Account JSON，處理從環境變數讀取可能會造成的跳脫字元問題"""
+    """安全解析 GCP Service Account JSON，處理從環境變數讀取可能會造成的各種跳脫問題"""
     raw_json = GOOGLE_CREDENTIALS_JSON
-    # 有些平台環境變數會擅自把換行符號跳脫，修正 `\n` 為真的換行
+    if not raw_json:
+        raise ValueError("GOOGLE_CREDENTIALS_JSON 未設定")
+        
+    # 如果使用者在 Zeabur 貼上時不小心前後加了單引號或雙引號，剝掉它
+    raw_json = raw_json.strip().strip("'").strip('"')
+    
+    # 處理真正的換行符號跳脫
     if "\\n" in raw_json:
         raw_json = raw_json.replace("\\n", "\n")
+        
+    # 如果有被誤加上跳脫雙引號，也嘗試清理
+    if '\\"' in raw_json:
+        raw_json = raw_json.replace('\\"', '"')
+
     try:
-        return json.loads(raw_json)
+        creds_dict = json.loads(raw_json)
+        # 基本檢查
+        if "client_email" not in creds_dict:
+            logger.error("🛑 JSON 格式中缺少 client_email，這可能不是完整的 Service Account 金鑰")
+            raise ValueError("Invalid Google Credentials format: missing client_email")
+        return creds_dict
     except json.JSONDecodeError as e:
-        logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗，請檢查 Zeabur 環境變數格式是否正確。長度=%d, 錯誤內容=%s", len(raw_json), e)
+        logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗。這通常是因為在 Zeabur 環境變量欄位貼上時格式跑掉。長度=%d, 錯誤=%s", len(raw_json), e)
+        # 用於除錯，只印出前50字以防洩漏太多金鑰
+        logger.error("前 50 字元: %s...", raw_json[:50])
         raise e
 
 def _get_google_credentials():
