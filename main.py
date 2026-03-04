@@ -304,6 +304,8 @@ async def webhook(request: Request):
     return JSONResponse(content={"status": "ok"})
 
 
+import flex_messages
+
 # ── 文字訊息：AI 查檔 + 一般對話 ─────────────────────────────────────────
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event: MessageEvent):
@@ -318,17 +320,19 @@ def handle_text_message(event: MessageEvent):
     logger.info("[%s] AI 判斷搜尋關鍵字: %s", user_id, search_query)
 
     if search_query == "NOT_A_SEARCH":
-        # 如果不是搜尋，可以用一般 LLM 陪聊（這邊簡單回覆即可）
-        reply_text = "我是您的雲端檔案小秘書。您可以丟圖片、檔案給我幫您備份，或是問我找之前的檔案喔！"
+        # 如果不是搜尋，跳出美美的選單 Flex Message
+        reply_message = flex_messages.get_welcome_flex()
+        save_message(user_id, "assistant", "已傳送主選單卡片")
     else:
         file_url = lookup_file_in_sheets_by_tags(search_query)
         if file_url:
-            reply_text = f"找到了！這可能是您要找的檔案：\n🔗 {file_url}"
+            reply_message = flex_messages.get_search_result_flex(search_query, file_url)
+            save_message(user_id, "assistant", f"找到了！已傳送搜尋結果卡片: {file_url}")
         else:
-            reply_text = NOT_FOUND_MESSAGE
+            reply_message = TextSendMessage(text=NOT_FOUND_MESSAGE)
+            save_message(user_id, "assistant", NOT_FOUND_MESSAGE)
 
-    save_message(user_id, "assistant", reply_text)
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    line_bot_api.reply_message(event.reply_token, reply_message)
 
 
 # ── 圖片訊息：Vision 分析 + Drive 備份 + Sheets 索引 ────────────────────────
@@ -344,21 +348,23 @@ def handle_image_message(event: MessageEvent):
     
     filename = f"IMG_{ts_str}.jpg"
     
-    line_bot_api.reply_message(
-        event.reply_token, 
-        TextSendMessage(text="📸 收到圖片，正在備份與建立語意索引中...")
-    )
-
-    # 1. 備份到 Drive
+    # LINE Webhook 一次事件只能調用一次 reply_message
+    # 如果要先回「處理中」，再回「結果」，第二則必須用 push_message
+    # 為避免過於複雜，這裡我們讓用戶等一下，直接給最後一張精美收據
     link, raw_bytes = backup_media_to_drive(msg_id, "image/jpeg", filename)
     if not link:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 備份寫入失敗"))
         return
 
-    # 2. 呼叫 GPT-4o Vision 識圖
+    # 呼叫 GPT-4o Vision 識圖
     tags = analyze_image_with_vision(raw_bytes) if raw_bytes else "無標籤"
 
-    # 3. 寫入 Google Sheets
+    # 寫入 Google Sheets
     append_to_google_sheet(timestamp_display, filename, tags, link)
+
+    # 傳送歸檔收據 (Flex)
+    receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link)
+    line_bot_api.reply_message(event.reply_token, receipt_flex)
 
     # 4. (非同步) 若需要可在這發第二段確認訊息，但因為 LINE Webhook 有限制，我們簡化處理。
 
@@ -374,8 +380,12 @@ def handle_video_message(event: MessageEvent):
 
     link, _ = backup_media_to_drive(msg_id, "video/mp4", filename)
     if link:
-        append_to_google_sheet(timestamp_display, filename, "影片", link)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🎬 備份成功：\n{link}"))
+        tags = "影片"
+        append_to_google_sheet(timestamp_display, filename, tags, link)
+        receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link)
+        line_bot_api.reply_message(event.reply_token, receipt_flex)
+    else:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 影片備份失敗"))
 
 
 @handler.add(MessageEvent, message=FileMessage)
@@ -389,6 +399,9 @@ def handle_file_message(event: MessageEvent):
 
     link, _ = backup_media_to_drive(msg_id, "application/octet-stream", filename)
     if link:
-        # 將原始檔名當作標籤的一部分
-        append_to_google_sheet(timestamp_display, filename, f"檔案, {original_filename}", link)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📄 備份成功：\n{link}"))
+        tags = f"檔案, {original_filename}"
+        append_to_google_sheet(timestamp_display, filename, tags, link)
+        receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link)
+        line_bot_api.reply_message(event.reply_token, receipt_flex)
+    else:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 檔案備份失敗"))
