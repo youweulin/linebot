@@ -116,18 +116,28 @@ def save_message(user_id: str, role: str, content: str):
 # ══════════════════════════════════════════════════════════════════════════════
 # Google 服務整合 (Drive & Sheets)
 # ══════════════════════════════════════════════════════════════════════════════
+def get_google_credentials_dict() -> dict:
+    """安全解析 GCP Service Account JSON，處理從環境變數讀取可能會造成的跳脫字元問題"""
+    raw_json = GOOGLE_CREDENTIALS_JSON
+    # 有些平台環境變數會擅自把換行符號跳脫，修正 `\n` 為真的換行
+    if "\\n" in raw_json:
+        raw_json = raw_json.replace("\\n", "\n")
+    try:
+        return json.loads(raw_json)
+    except json.JSONDecodeError as e:
+        logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗，請檢查 Zeabur 環境變數格式是否正確。長度=%d, 錯誤內容=%s", len(raw_json), e)
+        raise e
+
 def _get_google_credentials():
-    creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
     scopes = [
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/spreadsheets"
     ]
-    return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
+    return SACredentials.from_service_account_info(get_google_credentials_dict(), scopes=scopes)
 
 
 def get_google_sheet():
-    creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-    gc = gspread.service_account_from_dict(creds_dict)
+    gc = gspread.service_account_from_dict(get_google_credentials_dict())
     return gc.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_NAME)
 
 
