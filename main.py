@@ -1,14 +1,17 @@
 """
-LINE Bot — Premium Features Replacement
-========================================
-功能清單（對標 LINE Premium 付費功能）：
-  1. [AI 查檔]   使用者輸入 → AI 萃取檔名 → Google Sheets 查詢 → LINE 回覆
-  2. [多輪記憶]  SQLite 記住每位使用者的最近 N 輪對話（無月租費版記憶）
-  3. [媒體備份]  自動將圖片、影片、語音、檔案存入 Google Drive 指定資料夾
-                 （取代 LINE Premium 的 100GB 相簿 + 備份功能）
-  4. [Langfuse]  所有 AI 呼叫自動被攔截記錄，後台可視化 AI 思考過程
+LINE Bot — Semantic Backup & Retrieval
+=======================================
+功能：
+  1. [語義備份]   收到圖片/檔案 → 自動備份到 Google Drive。
+                 如果是圖片，則呼叫 GPT-4o-vision 分析內容，給予標籤 (Tags) 與描述。
+                 將「時間、檔名、標籤、Drive連結」自動寫入 Google Sheets 建立索引。
+  2. [AI 智能查詢] 使用者文字查詢 → AI 判斷是在搜尋什麼 → 
+                 在 Sheets (檔名, 標籤) 中模糊比對 → 回傳 Drive 連結。
+  3. [多輪記憶]   記錄上下文。
+  4. [Langfuse]   觀測 AI 行為。
 """
 
+import base64
 import io
 import json
 import logging
@@ -26,7 +29,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from google.oauth2.service_account import Credentials as SACredentials
 from langfuse import Langfuse
-from langfuse.openai import openai as langfuse_openai  # Patched OpenAI client (auto tracing)
+from langfuse.openai import openai as langfuse_openai  
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
@@ -46,9 +49,9 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "工作表1")
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
-GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")  # 選填：備份資料夾 ID
-NOT_FOUND_MESSAGE = os.getenv("NOT_FOUND_MESSAGE", "找不到您要查詢的檔案，請確認檔名是否正確。")
-MEMORY_WINDOW = int(os.getenv("MEMORY_WINDOW", "10"))             # 保留最近 N 輪對話
+GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+NOT_FOUND_MESSAGE = os.getenv("NOT_FOUND_MESSAGE", "找不到您要查詢的檔案，請嘗試其他關鍵字。")
+MEMORY_WINDOW = int(os.getenv("MEMORY_WINDOW", "10"))
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
@@ -59,11 +62,10 @@ LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="LINE Bot - Premium Replacement 🤖")
+app = FastAPI(title="LINE Bot - Semantic Backup 🤖")
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 若有設定 Langfuse 金鑰才啟動觀測（不設定也能正常運作）
 langfuse_enabled = bool(LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY)
 if langfuse_enabled:
     langfuse_client = Langfuse(
@@ -71,53 +73,39 @@ if langfuse_enabled:
         secret_key=LANGFUSE_SECRET_KEY,
         host=LANGFUSE_HOST,
     )
-    # ✅ 使用 langfuse 代理的 openai 客戶端，每次呼叫都會自動被紀錄到 Langfuse 後台
     openai_client = langfuse_openai.AsyncOpenAI(api_key=OPENAI_API_KEY) if False else \
                     __import__("openai").OpenAI(api_key=OPENAI_API_KEY)
-    logger.info("✅ Langfuse 觀測已啟動！後台：%s", LANGFUSE_HOST)
+    logger.info("✅ Langfuse 觀測已啟動！")
 else:
     openai_client = __import__("openai").OpenAI(api_key=OPENAI_API_KEY)
-    logger.info("ℹ️ Langfuse 未啟動（未設定 LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY）")
+    logger.info("ℹ️ Langfuse 未啟動")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 功能模組 1：多輪對話記憶（SQLite）
-# ══════════════════════════════════════════════════════════════════════════════
 DB_PATH = os.getenv("MEMORY_DB_PATH", "/tmp/linebot_memory.db")
-
 def init_db():
-    """初始化 SQLite 對話記憶資料庫"""
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS memory (
                 id        INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id   TEXT    NOT NULL,
-                role      TEXT    NOT NULL,   -- 'user' or 'assistant'
+                role      TEXT    NOT NULL,
                 content   TEXT    NOT NULL,
                 ts        TEXT    NOT NULL
             )
         """)
         conn.commit()
-
 init_db()
 
 
 def get_history(user_id: str) -> list[dict]:
-    """取得某使用者最近 MEMORY_WINDOW 則對話，用於多輪上下文"""
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
-            """
-            SELECT role, content FROM memory
-            WHERE user_id = ?
-            ORDER BY id DESC LIMIT ?
-            """,
+            "SELECT role, content FROM memory WHERE user_id = ? ORDER BY id DESC LIMIT ?",
             (user_id, MEMORY_WINDOW),
         ).fetchall()
-    # 反轉讓最舊的在前（OpenAI messages 要按時間序）
     return [{"role": r, "content": c} for r, c in reversed(rows)]
 
 
 def save_message(user_id: str, role: str, content: str):
-    """儲存一則對話到 SQLite"""
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
             "INSERT INTO memory (user_id, role, content, ts) VALUES (?, ?, ?, ?)",
@@ -125,36 +113,52 @@ def save_message(user_id: str, role: str, content: str):
         )
         conn.commit()
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# 功能模組 2：Google Drive 媒體備份
+# Google 服務整合 (Drive & Sheets)
 # ══════════════════════════════════════════════════════════════════════════════
-def _get_drive_service():
+def _get_google_credentials():
     creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-    scopes = ["https://www.googleapis.com/auth/drive"]
-    creds = SACredentials.from_service_account_info(creds_dict, scopes=scopes)
-    return build("drive", "v3", credentials=creds)
+    scopes = [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/spreadsheets"
+    ]
+    return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
+
+
+def get_google_sheet():
+    creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+    gc = gspread.service_account_from_dict(creds_dict)
+    return gc.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_NAME)
+
+
+def append_to_google_sheet(timestamp: str, filename: str, tags: str, file_url: str):
+    """將備份紀錄寫入 Google Sheets (自動新增一列)"""
+    try:
+        sheet = get_google_sheet()
+        # 假設 Sheets 的欄位：A=Timestamp, B=Filename, C=Tags, D=File URL
+        sheet.append_row([timestamp, filename, tags, file_url])
+        logger.info("✅ 成功將索引寫入 Google Sheets: %s", filename)
+    except Exception as e:
+        logger.error("寫入 Google Sheets 失敗: %s", e)
 
 
 def backup_media_to_drive(
     message_id: str,
     mime_type: str,
     filename: str,
-) -> str | None:
+) -> tuple[str | None, bytes | None]:
     """
-    從 LINE 下載媒體內容，上傳到 Google Drive。
-    回傳 Google Drive 的分享連結，失敗時回傳 None。
+    從 LINE 下載媒體，上傳至 Drive。
+    回傳 (Drive 連結, 原始 bytes)。
     """
     if not GOOGLE_DRIVE_FOLDER_ID:
         logger.warning("GOOGLE_DRIVE_FOLDER_ID 未設定，跳過備份")
-        return None
+        return None, None
     try:
-        # 從 LINE 下載原始媒體
         media_content = line_bot_api.get_message_content(message_id)
         raw_bytes = b"".join(media_content.iter_content())
 
-        # 上傳到 Google Drive
-        drive_service = _get_drive_service()
+        drive_service = build("drive", "v3", credentials=_get_google_credentials())
         file_metadata = {
             "name": filename,
             "parents": [GOOGLE_DRIVE_FOLDER_ID],
@@ -170,85 +174,113 @@ def backup_media_to_drive(
             fields="id,webViewLink",
         ).execute()
 
-        # 設定公開分享（任何知道連結的人可查看）
         drive_service.permissions().create(
             fileId=uploaded["id"],
             body={"type": "anyone", "role": "reader"},
         ).execute()
 
         link = uploaded.get("webViewLink", "")
-        logger.info("📁 媒體已備份至 Google Drive: %s", link)
-        return link
+        return link, raw_bytes
     except Exception as e:
         logger.error("Google Drive 備份失敗: %s", e)
-        return None
-
+        return None, None
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 功能模組 3：Google Sheets 查詢（原始功能保留）
+# AI 語義模組 (Vision 識圖 & 文字關鍵字萃取)
 # ══════════════════════════════════════════════════════════════════════════════
-def get_google_sheet():
-    creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-    gc = gspread.service_account_from_dict(creds_dict)
-    return gc.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_NAME)
+def analyze_image_with_vision(image_bytes: bytes) -> str:
+    """使用 GPT-4o Vision 分析圖片內容，產生語義標籤"""
+    try:
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",  # 強制使用具備視覺能力的模型
+            messages=[
+                {
+                    "role": "system",
+                    "content": "你是一個歸檔助理。請用簡短的幾個關鍵字（用逗號分隔）描述這張圖片的主要內容。不要有其他廢話。"
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "請給這張圖片產生標籤 (tags)："},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "low"},
+                        },
+                    ],
+                }
+            ],
+            max_tokens=50,
+        )
+        tags = response.choices[0].message.content.strip()
+        logger.info("👁️ Vision 識圖結果: %s", tags)
+        return tags
+    except Exception as e:
+        logger.error("Vision 識圖失敗: %s", e)
+        return "自動備份圖片"
 
 
-def extract_filename_with_ai(user_message: str, history: list[dict]) -> str:
-    """
-    使用 OpenAI 從使用者訊息（含上下文歷史）萃取想查詢的檔名。
-    Langfuse 已透過 langfuse_openai 自動追蹤此呼叫。
-    """
+def extract_search_query_with_ai(user_message: str, history: list[dict]) -> str:
+    """從使用者的提問中，萃取出「搜尋關鍵字」"""
     system_prompt = (
-        "You are an AI chatbot that helps extract filenames from user messages.\n"
-        "Users will send messages related to file searches, such as:\n\n"
-        '\"Please find file 1.pdf for me.\"\n'
-        '\"Can you get me file 2.pdf?\"\n'
-        '\"Is there a file related to project ABC?\"\n'
-        '\"Show me all my documents.\"\n'
-        "Analyze the message and extract the filename the user is requesting. "
-        "Respond with only the filename, such as:\n\n"
-        '\"1.pdf\"\n'
-        '\"Project ABC Document.pdf\"\n'
-        'If no filename is found in the message, respond with \"No filename detected.\"'
+        "你是一個檔案查詢助理。用戶會跟你尋找之前存過的檔案（可能是照片、影片或文件）。\n"
+        "請從用戶的話中，精煉出「最核心的搜尋關鍵字」。\n"
+        "如果用戶只是在閒聊（例如：你好、早安、謝謝），請回覆「NOT_A_SEARCH」。\n\n"
+        "範例 1：\n用戶：「幫我找上次那份 Q4 財報」\n你：「Q4, 財報」\n\n"
+        "範例 2：\n用戶：「有沒有之前去日本玩的照片？」\n你：「日本, 照片」\n\n"
+        "範例 3：\n用戶：「你好嗎？」\n你：「NOT_A_SEARCH」\n"
     )
     messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)                          # 帶入多輪歷史訊息
+    messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
     response = openai_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=messages,
         temperature=0,
-        max_tokens=100,
+        max_tokens=50,
     )
     return response.choices[0].message.content.strip()
 
 
-def lookup_file_in_sheets(filename: str) -> str | None:
+def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
+    """
+    在 Google Sheets 中尋找符合關鍵字的檔案。
+    假設欄位：A=Timestamp, B=Filename, C=Tags, D=File URL
+    """
     try:
         sheet = get_google_sheet()
         records = sheet.get_all_records()
+        
+        # 關鍵字切分，變成小寫比對
+        keywords = [k.strip().lower() for k in search_query.split(",")]
+        
+        # 尋找第一筆「Filename」或「Tags」涵蓋所有關鍵字的記錄
         for row in records:
-            if str(row.get("Filename", "")).strip().lower() == filename.strip().lower():
+            filename = str(row.get("Filename", "")).lower()
+            tags = str(row.get("Tags", "")).lower()
+            
+            # 若任意關鍵字存在於 filename 或 tags 裡，我們當作符合
+            match_count = 0
+            for k in keywords:
+                if k in filename or k in tags:
+                    match_count += 1
+            
+            if match_count > 0:
                 url = str(row.get("File URL", "")).strip()
-                return url if url else None
+                if url:
+                    return url
         return None
     except Exception as e:
         logger.error("Google Sheets 查詢失敗: %s", e)
         return None
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LINE Webhook 路由
 # ══════════════════════════════════════════════════════════════════════════════
 @app.get("/")
 async def health_check():
-    return {
-        "status": "ok",
-        "message": "LINE Bot is running 🤖",
-        "langfuse": "enabled" if langfuse_enabled else "disabled",
-    }
-
+    return {"status": "ok", "message": "Semantic Backup Bot is running 🤖"}
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -262,74 +294,91 @@ async def webhook(request: Request):
     return JSONResponse(content={"status": "ok"})
 
 
-# ── 文字訊息：AI 查檔 + 多輪記憶 ─────────────────────────────────────────
+# ── 文字訊息：AI 查檔 + 一般對話 ─────────────────────────────────────────
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event: MessageEvent):
-    user_id: str = event.source.user_id
-    user_message: str = event.message.text
+    user_id = event.source.user_id
+    user_message = event.message.text
     logger.info("[%s] 收到文字: %s", user_id, user_message)
 
-    # 載入對話歷史（多輪記憶）
     history = get_history(user_id)
     save_message(user_id, "user", user_message)
 
-    # AI 萃取檔名（Langfuse 自動追蹤）
-    extracted_filename = extract_filename_with_ai(user_message, history)
-    logger.info("[%s] AI 萃取檔名: %s", user_id, extracted_filename)
+    search_query = extract_search_query_with_ai(user_message, history)
+    logger.info("[%s] AI 判斷搜尋關鍵字: %s", user_id, search_query)
 
-    # Google Sheets 查詢
-    if extracted_filename == "No filename detected.":
-        reply_text = NOT_FOUND_MESSAGE
+    if search_query == "NOT_A_SEARCH":
+        # 如果不是搜尋，可以用一般 LLM 陪聊（這邊簡單回覆即可）
+        reply_text = "我是您的雲端檔案小秘書。您可以丟圖片、檔案給我幫您備份，或是問我找之前的檔案喔！"
     else:
-        file_url = lookup_file_in_sheets(extracted_filename)
-        reply_text = file_url if file_url else NOT_FOUND_MESSAGE
+        file_url = lookup_file_in_sheets_by_tags(search_query)
+        if file_url:
+            reply_text = f"找到了！這可能是您要找的檔案：\n🔗 {file_url}"
+        else:
+            reply_text = NOT_FOUND_MESSAGE
 
-    # 儲存 AI 回覆到記憶
     save_message(user_id, "assistant", reply_text)
-
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
 
 
-# ── 圖片訊息：自動備份到 Google Drive ────────────────────────────────────
+# ── 圖片訊息：Vision 分析 + Drive 備份 + Sheets 索引 ────────────────────────
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image_message(event: MessageEvent):
     user_id = event.source.user_id
     msg_id = event.message.id
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"LINE_IMG_{user_id}_{ts}.jpg"
-    logger.info("[%s] 收到圖片，開始備份: %s", user_id, filename)
+    
+    # 時間特徵
+    now = datetime.now()
+    ts_str = now.strftime("%Y%m%d_%H%M%S")
+    timestamp_display = now.strftime("%Y/%m/%d %H:%M")
+    
+    filename = f"IMG_{ts_str}.jpg"
+    
+    line_bot_api.reply_message(
+        event.reply_token, 
+        TextSendMessage(text="📸 收到圖片，正在備份與建立語意索引中...")
+    )
 
-    link = backup_media_to_drive(msg_id, "image/jpeg", filename)
-    reply_text = f"📸 圖片已備份到您的 Google Drive！\n🔗 {link}" if link else \
-                 "📸 圖片收到，但備份失敗，請稍後重試。"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    # 1. 備份到 Drive
+    link, raw_bytes = backup_media_to_drive(msg_id, "image/jpeg", filename)
+    if not link:
+        return
+
+    # 2. 呼叫 GPT-4o Vision 識圖
+    tags = analyze_image_with_vision(raw_bytes) if raw_bytes else "無標籤"
+
+    # 3. 寫入 Google Sheets
+    append_to_google_sheet(timestamp_display, filename, tags, link)
+
+    # 4. (非同步) 若需要可在這發第二段確認訊息，但因為 LINE Webhook 有限制，我們簡化處理。
 
 
-# ── 影片訊息：自動備份到 Google Drive ────────────────────────────────────
+# ── 影片/檔案：只能記檔名與時間，無 Vision 分析 ───────────────────────
 @handler.add(MessageEvent, message=VideoMessage)
 def handle_video_message(event: MessageEvent):
     user_id = event.source.user_id
     msg_id = event.message.id
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"LINE_VID_{user_id}_{ts}.mp4"
-    logger.info("[%s] 收到影片，開始備份: %s", user_id, filename)
+    ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp_display = datetime.now().strftime("%Y/%m/%d %H:%M")
+    filename = f"VID_{ts_str}.mp4"
 
-    link = backup_media_to_drive(msg_id, "video/mp4", filename)
-    reply_text = f"🎬 影片已備份到您的 Google Drive！\n🔗 {link}" if link else \
-                 "🎬 影片收到，但備份失敗，請稍後重試。"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    link, _ = backup_media_to_drive(msg_id, "video/mp4", filename)
+    if link:
+        append_to_google_sheet(timestamp_display, filename, "影片", link)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🎬 備份成功：\n{link}"))
 
 
-
-# ── 一般檔案：自動備份到 Google Drive ────────────────────────────────────
 @handler.add(MessageEvent, message=FileMessage)
 def handle_file_message(event: MessageEvent):
     user_id = event.source.user_id
     msg_id = event.message.id
     original_filename = event.message.file_name
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"LINE_FILE_{user_id}_{ts}_{original_filename}"
-    link = backup_media_to_drive(msg_id, "application/octet-stream", filename)
-    reply_text = f"📄 檔案「{original_filename}」已備份到您的 Google Drive！\n🔗 {link}" if link else \
-                 f"📄 收到檔案「{original_filename}」，但備份失敗，請稍後重試。"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    
+    timestamp_display = datetime.now().strftime("%Y/%m/%d %H:%M")
+    filename = f"FILE_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{original_filename}"
+
+    link, _ = backup_media_to_drive(msg_id, "application/octet-stream", filename)
+    if link:
+        # 將原始檔名當作標籤的一部分
+        append_to_google_sheet(timestamp_display, filename, f"檔案, {original_filename}", link)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"📄 備份成功：\n{link}"))

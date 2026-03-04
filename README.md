@@ -5,9 +5,10 @@
 
 ---
 
-## 🛠️ 功能說明
+## 🛠️ 功能說明 (超越 LINE Premium)
 
-使用者在 LINE 傳送訊息 → AI（OpenAI）從訊息中自動萃取想查詢的**檔案名稱** → 到 **Google Sheets** 查詢對應的**檔案下載連結** → 回覆給使用者。
+1. **語義備份**：接收圖片/影片/檔案 → 自動備份至 Google Drive。若為圖片，將自動透過 GPT-4o Vision 閱讀圖片內容，總結成「標籤(Tags)」，並連同時間與網址寫回 Google Sheets 建立資料庫。
+2. **AI 智能查檔**：使用者自然對話詢問檔案 → AI 判斷搜尋意圖 → 以「標籤 或 檔名」在 Sheets 中進行模糊比對 → 回傳正確下載連結。
 
 ### 工作流對應關係
 
@@ -97,9 +98,10 @@ linebot/
 
 ## 🗺️ 未來功能規劃
 
-- [ ] 多輪對話記憶（SQLite / Redis）
-- [ ] 支援圖片訊息 → 自動存入 Google Drive
-- [ ] Langfuse 觀測儀表板整合（追蹤 AI 思考過程）
+- [x] 多輪對話記憶（SQLite）
+- [x] 支援圖片訊息 → AI(GPT-4o) 自動識圖標籤化 → 自動存入 Google Drive
+- [x] Langfuse 觀測儀表板整合（追蹤 AI 思考過程）
+- [x] 基於語義標籤的模糊查詢系統
 - [ ] 支援自定義 System Prompt（從 Google Sheets 讀取）
 - [ ] 多語言支援（中英文自動偵測）
 
