@@ -117,45 +117,53 @@ def save_message(user_id: str, role: str, content: str):
 # Google 服務整合 (Drive & Sheets)
 # ══════════════════════════════════════════════════════════════════════════════
 def get_google_credentials_dict() -> dict:
-    """安全解析 GCP Service Account JSON，處理從環境變數讀取可能會造成的各種跳脫問題"""
+    """安全解析 GCP JSON，處理可能是 Service Account 或 OAuth2 Token 的格式"""
     raw_json = GOOGLE_CREDENTIALS_JSON
     if not raw_json:
         raise ValueError("GOOGLE_CREDENTIALS_JSON 未設定")
         
-    # 如果使用者在 Zeabur 貼上時不小心前後加了單引號或雙引號，剝掉它
     raw_json = raw_json.strip().strip("'").strip('"')
     
-    # 處理真正的換行符號跳脫
     if "\\n" in raw_json:
         raw_json = raw_json.replace("\\n", "\n")
         
-    # 如果有被誤加上跳脫雙引號，也嘗試清理
     if '\\"' in raw_json:
         raw_json = raw_json.replace('\\"', '"')
 
     try:
-        creds_dict = json.loads(raw_json)
-        # 基本檢查
-        if "client_email" not in creds_dict:
-            logger.error("🛑 JSON 格式中缺少 client_email，這可能不是完整的 Service Account 金鑰")
-            raise ValueError("Invalid Google Credentials format: missing client_email")
-        return creds_dict
+        return json.loads(raw_json)
     except json.JSONDecodeError as e:
-        logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗。這通常是因為在 Zeabur 環境變量欄位貼上時格式跑掉。長度=%d, 錯誤=%s", len(raw_json), e)
-        # 用於除錯，只印出前50字以防洩漏太多金鑰
-        logger.error("前 50 字元: %s...", raw_json[:50])
+        logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗。長度=%d, 錯誤=%s", len(raw_json), e)
         raise e
 
 def _get_google_credentials():
+    creds_dict = get_google_credentials_dict()
     scopes = [
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/spreadsheets"
     ]
-    return SACredentials.from_service_account_info(get_google_credentials_dict(), scopes=scopes)
+    
+    if "refresh_token" in creds_dict:
+        # User OAuth2 Token 格式 (例如來自 n8n 匯出或 OAuth Playground)
+        from google.oauth2.credentials import Credentials
+        return Credentials.from_authorized_user_info(creds_dict, scopes=scopes)
+    else:
+        # Service Account 格式
+        return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
 
 
 def get_google_sheet():
-    gc = gspread.service_account_from_dict(get_google_credentials_dict())
+    creds_dict = get_google_credentials_dict()
+    
+    if "refresh_token" in creds_dict:
+        # 初始化為 OAuth 使用者金鑰
+        from google.oauth2.credentials import Credentials
+        credentials = Credentials.from_authorized_user_info(creds_dict)
+        gc = gspread.authorize(credentials)
+    else:
+        # 初始化為 Service Account
+        gc = gspread.service_account_from_dict(creds_dict)
+        
     return gc.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_NAME)
 
 
