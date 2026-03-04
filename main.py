@@ -31,7 +31,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
-    ImageMessage, VideoMessage, AudioMessage, FileMessage,
+    ImageMessage, VideoMessage, FileMessage,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -319,18 +319,6 @@ def handle_video_message(event: MessageEvent):
                  "🎬 影片收到，但備份失敗，請稍後重試。"
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
 
-
-# ── 語音訊息：自動備份到 Google Drive ────────────────────────────────────
-@handler.add(MessageEvent, message=AudioMessage)
-def handle_audio_message(event: MessageEvent):
-    user_id = event.source.user_id
-    msg_id = event.message.id
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    filename = f"LINE_AUDIO_{user_id}_{ts}.m4a"
-    link = backup_media_to_drive(msg_id, "audio/mp4", filename)
-    reply_text = f"🎙️ 語音已備份到您的 Google Drive！\n🔗 {link}" if link else \
-                 "🎙️ 語音收到，但備份失敗，請稍後重試。"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
 
 
 # ── 一般檔案：自動備份到 Google Drive ────────────────────────────────────
