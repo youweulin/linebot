@@ -349,29 +349,41 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
 def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
     """
     在 Google Sheets 中尋找符合關鍵字的檔案。
-    假設欄位：A=Timestamp, B=Filename, C=Tags, D=File URL
+    欄位彈性比對：會對整列的所有文字欄位做搜尋。
     """
     try:
         sheet = get_google_sheet()
         records = sheet.get_all_records()
         
+        if records:
+            logger.info("🔍 Sheets 欄位名稱 (除錯用): %s", list(records[0].keys()))
+        else:
+            logger.warning("⚠️ Google Sheets 是空的，沒有任何記錄！")
+            return None
+        
         # 關鍵字切分，變成小寫比對
         keywords = [k.strip().lower() for k in search_query.split(",")]
         
-        # 尋找第一筆「Filename」或「Tags」涵蓋所有關鍵字的記錄
         for row in records:
-            filename = str(row.get("Filename", "")).lower()
-            tags = str(row.get("Tags", "")).lower()
+            # 把整列所有欄位的值都串在一起做搜尋 (大小寫不分)
+            all_values_str = " ".join(str(v) for v in row.values()).lower()
             
-            match_count = 0
-            for k in keywords:
-                if k in filename or k in tags:
-                    match_count += 1
+            match_count = sum(1 for k in keywords if k and k in all_values_str)
             
             if match_count > 0:
-                url = str(row.get("File URL", "")).strip()
+                # 優先回傳 "File URL" 欄位
+                url = str(row.get("File URL", row.get("file url", row.get("URL", "")))).strip()
+                # 退而求其次，找任何含有 http 的欄位
+                if not url:
+                    for v in row.values():
+                        sv = str(v).strip()
+                        if sv.startswith("http"):
+                            url = sv
+                            break
                 if url:
                     return url
+        
+        logger.info("🔍 搜尋 '%s' 後，在 %d 筆記錄中找不到符合項目。", search_query, len(records))
         return None
     except Exception as e:
         logger.error("Google Sheets 查詢失敗: %s", e)
