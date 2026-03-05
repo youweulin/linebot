@@ -491,7 +491,7 @@ def handle_image_message(event: MessageEvent):
     append_to_google_sheet(timestamp_display, filename, tags, link)
 
     # 傳送歸檔收據 (Flex)
-    receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link)
+    receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
     line_bot_api.reply_message(event.reply_token, receipt_flex)
 
     # 4. (非同步) 若需要可在這發第二段確認訊息，但因為 LINE Webhook 有限制，我們簡化處理。
@@ -510,7 +510,7 @@ def handle_video_message(event: MessageEvent):
     if link:
         tags = "影片"
         append_to_google_sheet(timestamp_display, filename, tags, link)
-        receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link)
+        receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
         line_bot_api.reply_message(event.reply_token, receipt_flex)
     else:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 影片備份失敗"))
@@ -529,7 +529,7 @@ def handle_file_message(event: MessageEvent):
     if link:
         tags = f"檔案, {original_filename}"
         append_to_google_sheet(timestamp_display, filename, tags, link)
-        receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link)
+        receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
         line_bot_api.reply_message(event.reply_token, receipt_flex)
     else:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 檔案備份失敗"))
