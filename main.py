@@ -508,7 +508,7 @@ def extract_namecard_info(image_bytes: bytes) -> dict | None:
                     "role": "system",
                     "content": (
                         "你是名片辨識助理。先判斷圖片是否為名片/商務卡：\n"
-                        "- 如果【是名片】，請回傳純 JSON：{\"is_namecard\": true, \"name\": \"...\", \"company\": \"...\", \"title\": \"...\", \"phone\": \"...\", \"email\": \"...\", \"notes\": \"其他資訊\"}\n"
+                        "- 如果【是名片】，請回傳純 JSON：{\"is_namecard\": true, \"name\": \"姓名\", \"company\": \"公司\", \"title\": \"職稱\", \"phone\": \"電話\", \"email\": \"Email\", \"address\": \"地址\", \"industry\": \"行業類別(如:水電、設計)\", \"summary\": \"一句話總結此人業務\", \"notes\": \"其他資訊\"}\n"
                         "- 如果【不是名片】，請回傳：{\"is_namecard\": false}\n"
                         "只回傳 JSON，不要加任何其他文字。"
                     )
