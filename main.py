@@ -256,27 +256,89 @@ def analyze_image_with_vision(image_bytes: bytes) -> str:
         return "自動備份圖片"
 
 
-def extract_search_query_with_ai(user_message: str, history: list[dict]) -> str:
-    """從使用者的提問中，萃取出「搜尋關鍵字」"""
+def process_user_message_with_tools(user_message: str, history: list[dict]) -> dict:
+    """
+    Agent Router 核心：使用 OpenAI Function Calling 決定要執行什麼動作。
+    回傳字典結構，例如：
+    {"action": "chat", "reply": "你好"}
+    {"action": "search_file", "param": "報價單"}
+    {"action": "save_note", "param": "明天早上10點開會"}
+    """
     system_prompt = (
-        "你是一個檔案查詢助理。用戶會跟你尋找之前存過的檔案（可能是照片、影片或文件）。\n"
-        "請從用戶的話中，精煉出「最核心的搜尋關鍵字」。\n"
-        "如果用戶只是在閒聊（例如：你好、早安、謝謝），請回覆「NOT_A_SEARCH」。\n\n"
-        "範例 1：\n用戶：「幫我找上次那份 Q4 財報」\n你：「Q4, 財報」\n\n"
-        "範例 2：\n用戶：「有沒有之前去日本玩的照片？」\n你：「日本, 照片」\n\n"
-        "範例 3：\n用戶：「你好嗎？」\n你：「NOT_A_SEARCH」\n"
+        "你是一個萬能的雲端助理。使用者會請你幫忙尋找以前存過的檔案，或是請你幫忙記下筆記。"
+        "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。"
+        "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
     )
+    
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_file",
+                "description": "當使用者想要尋找某個過去存過的檔案、照片或文件時呼叫此功能。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "keywords": {
+                            "type": "string",
+                            "description": "從語意中提煉出的搜尋關鍵字，多個關鍵字請用逗號分隔。例如: '日本, 照片'"
+                        }
+                    },
+                    "required": ["keywords"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "save_note",
+                "description": "當使用者想要記錄文字筆記、備忘錄、待辦事項、或是任何需要記下來的資訊時呼叫此功能。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "需要被完整記錄下來的筆記內容或重點。"
+                        }
+                    },
+                    "required": ["content"]
+                }
+            }
+        }
+    ]
+
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
-    response = openai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=messages,
-        temperature=0,
-        max_tokens=50,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = openai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0,
+            max_tokens=200,
+        )
+        
+        reply_msg = response.choices[0].message
+        
+        if reply_msg.tool_calls:
+            tool_call = reply_msg.tool_calls[0]
+            function_name = tool_call.function.name
+            args = json.loads(tool_call.function.arguments)
+            
+            if function_name == "search_file":
+                return {"action": "search_file", "param": args.get("keywords", "")}
+            elif function_name == "save_note":
+                return {"action": "save_note", "param": args.get("content", "")}
+        
+        # 如果 AI 判斷不需要用工具，就是單純閒聊
+        return {"action": "chat", "reply": reply_msg.content or "您好！請問需要什麼找檔案或幫忙記下來的嗎？"}
+        
+    except Exception as e:
+        logger.error("Function Calling 分析失敗: %s", e)
+        return {"action": "chat", "reply": "抱歉，我現在大腦卡卡的，請稍後再試。"}
 
 
 def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
@@ -296,7 +358,6 @@ def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
             filename = str(row.get("Filename", "")).lower()
             tags = str(row.get("Tags", "")).lower()
             
-            # 若任意關鍵字存在於 filename 或 tags 裡，我們當作符合
             match_count = 0
             for k in keywords:
                 if k in filename or k in tags:
@@ -310,6 +371,17 @@ def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
     except Exception as e:
         logger.error("Google Sheets 查詢失敗: %s", e)
         return None
+
+def save_note_to_sheets(content: str) -> str:
+    """將文字筆記直接寫入 Google Sheets，並模擬一個檔案網址"""
+    timestamp_display = datetime.now().strftime("%Y/%m/%d %H:%M")
+    filename = "📝 文字筆記"
+    tags = content
+    # 因為筆記本身就是字，我們用特殊字串當作 File URL 欄位，或者把它存起來就好
+    pseudo_url = "筆記內文" 
+    
+    append_to_google_sheet(timestamp_display, filename, tags, pseudo_url)
+    return timestamp_display
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LINE Webhook 路由
@@ -332,7 +404,7 @@ async def webhook(request: Request):
 
 import flex_messages
 
-# ── 文字訊息：AI 查檔 + 一般對話 ─────────────────────────────────────────
+# ── 文字訊息：Function Calling 智能路由 ───────────────────────────────────────
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event: MessageEvent):
     user_id = event.source.user_id
@@ -342,21 +414,35 @@ def handle_text_message(event: MessageEvent):
     history = get_history(user_id)
     save_message(user_id, "user", user_message)
 
-    search_query = extract_search_query_with_ai(user_message, history)
-    logger.info("[%s] AI 判斷搜尋關鍵字: %s", user_id, search_query)
+    # 核心大腦：執行 Function Calling
+    decision = process_user_message_with_tools(user_message, history)
+    action = decision.get("action")
+    logger.info("[%s] AI 決策動作: %s", user_id, decision)
 
-    if search_query == "NOT_A_SEARCH":
-        # 如果不是搜尋，跳出美美的選單 Flex Message
+    if action == "chat":
+        # 如果不是找檔案也不是記筆記，跳出主選單 + AI 閒聊回覆
         reply_message = flex_messages.get_welcome_flex()
-        save_message(user_id, "assistant", "已傳送主選單卡片")
-    else:
-        file_url = lookup_file_in_sheets_by_tags(search_query)
+        save_message(user_id, "assistant", decision.get("reply", ""))
+        
+    elif action == "search_file":
+        keywords = decision.get("param", "")
+        file_url = lookup_file_in_sheets_by_tags(keywords)
         if file_url:
-            reply_message = flex_messages.get_search_result_flex(search_query, file_url)
+            reply_message = flex_messages.get_search_result_flex(keywords, file_url)
             save_message(user_id, "assistant", f"找到了！已傳送搜尋結果卡片: {file_url}")
         else:
             reply_message = TextSendMessage(text=NOT_FOUND_MESSAGE)
             save_message(user_id, "assistant", NOT_FOUND_MESSAGE)
+            
+    elif action == "save_note":
+        note_content = decision.get("param", "")
+        time_str = save_note_to_sheets(note_content)
+        # 借用備份收據的樣式來顯示筆記成功
+        reply_message = flex_messages.get_backup_receipt_flex("📝 文字筆記", note_content, time_str, "#")
+        save_message(user_id, "assistant", "已幫您把筆記存下來了！")
+        
+    else:
+        reply_message = TextSendMessage(text="抱歉，我無法理解您的指令。")
 
     line_bot_api.reply_message(event.reply_token, reply_message)
 
