@@ -448,7 +448,19 @@ def handle_text_message(event: MessageEvent):
             reply_message = flex_messages.get_note_carousel(records, base_url)
             
         if reply_message:
-            line_bot_api.reply_message(event.reply_token, reply_message)
+            try:
+                line_bot_api.reply_message(event.reply_token, reply_message)
+            except Exception as e:
+                logger.error("🛑 快捷指令回覆失敗: %s", e)
+                # 把 Flex JSON 也記下來方便 debug
+                try:
+                    import json as _json
+                    logger.error("🛑 Flex JSON: %s", _json.dumps(reply_message.contents, ensure_ascii=False, default=str)[:2000])
+                except Exception:
+                    pass
+                # fallback 回覆純文字
+                from linebot.models import TextSendMessage as _TSM
+                line_bot_api.reply_message(event.reply_token, _TSM(text=f"查詢成功但卡片顯示失敗，請稍後重試。"))
             return
 
     history = get_history(user_id)
