@@ -194,7 +194,17 @@ def get_recent_records_from_sheet(tab_name: str, headers: list[str] = [], limit:
     """從指定分頁取得最新 N 筆資料（反排序）並封裝成字典的 List。如果分頁不存在，會自動建立空分頁然後回傳空 List。"""
     try:
         sheet = get_or_create_sheet_tab(tab_name, headers)
-        records = sheet.get_all_records()
+        values = sheet.get_all_values()
+        if not values or len(values) < 2:
+            return []
+            
+        sheet_headers = values[0]
+        records = []
+        for row in values[1:]:
+            # 將資料列補齊長度，如果不足的地方用空字串填補
+            row_data = row + [""] * (len(sheet_headers) - len(row))
+            records.append(dict(zip(sheet_headers, row_data)))
+            
         # 反序排列，最新的在前面
         records.reverse()
         return records[:limit]
