@@ -175,34 +175,29 @@ def get_backup_receipt_flex(filename: str, tags: str, time_str: str, file_url: s
                 }
             ]
         },
-        "footer": {
+    }
+    # 動態建構 footer 按鈕（只有合法 URI 才建立按鈕）
+    footer_buttons = []
+    if file_url and file_url.startswith("http"):
+        footer_buttons.append({
+            "type": "button",
+            "style": "primary",
+            "color": "#000000",
+            "action": {"type": "uri", "label": "📂 開啟檔案", "uri": file_url}
+        })
+    if folder_url and folder_url.startswith("http"):
+        footer_buttons.append({
+            "type": "button",
+            "style": "secondary",
+            "action": {"type": "uri", "label": "📁 開啟雲端資料夾", "uri": folder_url}
+        })
+    if footer_buttons:
+        bubble["footer"] = {
             "type": "box",
             "layout": "vertical",
             "spacing": "sm",
-            "contents": [
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "color": "#000000",
-                    "action": {
-                        "type": "uri",
-                        "label": "📂 開啟檔案",
-                        "uri": file_url
-                    }
-                }
-            ] + ([
-                {
-                    "type": "button",
-                    "style": "secondary",
-                    "action": {
-                        "type": "uri",
-                        "label": "📁 開啟雲端資料夾",
-                        "uri": folder_url
-                    }
-                }
-            ] if folder_url else [])
+            "contents": footer_buttons
         }
-    }
     return FlexSendMessage(alt_text="備份成功收據", contents=bubble)
 
 
