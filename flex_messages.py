@@ -301,7 +301,7 @@ def get_expense_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage
     for r in records:
         b = {
             "type": "bubble",
-            "size": "micro",
+            "size": "kilo",
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#FF7E67", "contents": [{"type": "text", "text": "💰 花費", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
@@ -315,7 +315,7 @@ def get_expense_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage
         bubbles.append(b)
     # 最後一頁放開啟 Sheet 按鈕
     bubbles.append({
-        "type": "bubble", "size": "micro",
+        "type": "bubble", "size": "kilo",
         "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "開啟完整帳本", "uri": sheet_url}}]}
     })
     return FlexSendMessage(alt_text="💰 近期記帳紀錄", contents={"type": "carousel", "contents": bubbles})
@@ -330,7 +330,7 @@ def get_task_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
         color = "#1DB446" if "已完成" in status else "#FF7E67"
         b = {
             "type": "bubble",
-            "size": "micro",
+            "size": "kilo",
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#4B89DC", "contents": [{"type": "text", "text": "✅ 任務", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
@@ -342,7 +342,7 @@ def get_task_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
         }
         bubbles.append(b)
     bubbles.append({
-        "type": "bubble", "size": "micro",
+        "type": "bubble", "size": "kilo",
         "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "前往打勾", "uri": sheet_url}}]}
     })
     return FlexSendMessage(alt_text="✅ 近期待辦清單", contents={"type": "carousel", "contents": bubbles})
@@ -355,7 +355,7 @@ def get_event_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
     for r in records:
         b = {
             "type": "bubble",
-            "size": "micro",
+            "size": "kilo",
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#967ADC", "contents": [{"type": "text", "text": "📅 排程", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
@@ -368,7 +368,7 @@ def get_event_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
         }
         bubbles.append(b)
     bubbles.append({
-        "type": "bubble", "size": "micro",
+        "type": "bubble", "size": "kilo",
         "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "開啟行事曆", "uri": sheet_url}}]}
     })
     return FlexSendMessage(alt_text="📅 近期行程", contents={"type": "carousel", "contents": bubbles})
@@ -407,7 +407,7 @@ def get_contact_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage
         }
         bubbles.append(b)
     bubbles.append({
-        "type": "bubble", "size": "micro",
+        "type": "bubble", "size": "kilo",
         "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "看完整名片", "uri": sheet_url}}]}
     })
     return FlexSendMessage(alt_text="📇 通訊錄", contents={"type": "carousel", "contents": bubbles})
@@ -422,7 +422,7 @@ def get_note_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
         display_content = (note_content[:50] + "...") if len(note_content) > 50 else note_content
         b = {
             "type": "bubble",
-            "size": "micro",
+            "size": "kilo",
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#F3C13A", "contents": [{"type": "text", "text": "📝 筆記", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
@@ -433,7 +433,7 @@ def get_note_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
         }
         bubbles.append(b)
     bubbles.append({
-        "type": "bubble", "size": "micro",
+        "type": "bubble", "size": "kilo",
         "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "開啟筆記本", "uri": sheet_url}}]}
     })
     return FlexSendMessage(alt_text="📝 近期筆記", contents={"type": "carousel", "contents": bubbles})
