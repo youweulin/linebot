@@ -290,7 +290,8 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
         "2. 請你幫忙記下筆記或備忘錄。\n"
         "3. 請你幫忙記帳（花費、消費、支出）。\n"
         "4. 請你儲存聯絡人資訊或電話號碼。\n"
-        "5. 請你幫忙排程、記錄未來的行程或待辦事項。\n"
+        "5. 請你幫忙排程、記錄未來的行程或會議。\n"
+        "6. 請你幫忙建立待辦事項、任務清單或提醒。\n"
         "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
     )
@@ -459,6 +460,16 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", f"已排程: {result['event_name']}")
             else:
                 reply_message = TextSendMessage(text="❌ 排程儲存失敗，請稍後再試。")
+
+        elif action == "add_task":
+            if result.get("saved"):
+                due_info = result["due_date"] if result.get("due_date") else "無期限"
+                reply_message = flex_messages.get_backup_receipt_flex(
+                    f"✅ {result['task']}", f"期限: {due_info} | {result['status']}", result["time_str"], "#"
+                )
+                save_message(user_id, "assistant", f"已建立待辦: {result['task']}")
+            else:
+                reply_message = TextSendMessage(text="❌ 待辦儲存失敗，請稍後再試。")
 
         elif action == "save_contact":
             if result.get("saved"):
