@@ -163,7 +163,12 @@ def _get_sheets_credentials():
 def get_google_sheet():
     """使用 Service Account 認證來存取 Google Sheets"""
     gc = gspread.service_account_from_dict(get_google_credentials_dict())
-    return gc.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_NAME)
+    spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
+    try:
+        return spreadsheet.worksheet(GOOGLE_SHEET_NAME)
+    except Exception:
+        logger.warning("⚠️ 找不到名為 '%s' 的分頁，改用第一個分頁", GOOGLE_SHEET_NAME)
+        return spreadsheet.sheet1
 
 
 def append_to_google_sheet(timestamp: str, filename: str, tags: str, file_url: str):
