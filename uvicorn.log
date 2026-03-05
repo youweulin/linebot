@@ -1,0 +1,24 @@
+2026-03-05 20:50:12,244 INFO ℹ️ Langfuse 未啟動
+INFO:     Started server process [14062]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8081 (Press CTRL+C to quit)
+2026-03-05 20:50:12,880 INFO [U1234567890] 收到文字: #待辦
+2026-03-05 20:50:12,880 ERROR 讀取分頁 ✅ 待辦清單 失敗: Service account info was not in the expected format, missing fields client_email, token_uri.
+2026-03-05 20:50:12,880 INFO 📤 即將送出文字回覆...
+2026-03-05 20:50:13,057 ERROR 🛑 快捷指令回覆失敗: LineBotApiError: status_code=401, request_id=171ccf51-7daa-44ac-aa2b-b2af056528eb, error_response={"details": [], "message": "Authentication failed. Confirm that the access token in the authorization header is valid."}, headers={'Server': 'legy', 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer error="invalid_token", error_description="invalid token"', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'x-line-request-id': '171ccf51-7daa-44ac-aa2b-b2af056528eb', 'x-xss-protection': '1; mode=block', 'Content-Length': '104', 'Expires': 'Thu, 05 Mar 2026 12:50:13 GMT', 'Cache-Control': 'max-age=0, no-cache, no-store', 'Pragma': 'no-cache', 'Date': 'Thu, 05 Mar 2026 12:50:13 GMT', 'Connection': 'close'}
+2026-03-05 20:50:13,059 ERROR Traceback (most recent call last):
+  File "/Users/kevinlin911/aiagent/linebot/main.py", line 481, in handle_text_message
+    line_bot_api.reply_message(event.reply_token, reply_message)
+  File "/Users/kevinlin911/aiagent/linebot/.venv/lib/python3.11/site-packages/deprecated/classic.py", line 199, in wrapper_function
+    return wrapped_(*args_, **kwargs_)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kevinlin911/aiagent/linebot/.venv/lib/python3.11/site-packages/linebot/api.py", line 123, in reply_message
+    self._post(
+  File "/Users/kevinlin911/aiagent/linebot/.venv/lib/python3.11/site-packages/linebot/api.py", line 2116, in _post
+    self.__check_error(response)
+  File "/Users/kevinlin911/aiagent/linebot/.venv/lib/python3.11/site-packages/linebot/api.py", line 2152, in __check_error
+    raise LineBotApiError(
+linebot.exceptions.LineBotApiError: LineBotApiError: status_code=401, request_id=171ccf51-7daa-44ac-aa2b-b2af056528eb, error_response={"details": [], "message": "Authentication failed. Confirm that the access token in the authorization header is valid."}, headers={'Server': 'legy', 'Content-Type': 'application/json', 'WWW-Authenticate': 'Bearer error="invalid_token", error_description="invalid token"', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'x-line-request-id': '171ccf51-7daa-44ac-aa2b-b2af056528eb', 'x-xss-protection': '1; mode=block', 'Content-Length': '104', 'Expires': 'Thu, 05 Mar 2026 12:50:13 GMT', 'Cache-Control': 'max-age=0, no-cache, no-store', 'Pragma': 'no-cache', 'Date': 'Thu, 05 Mar 2026 12:50:13 GMT', 'Connection': 'close'}
+
+INFO:     127.0.0.1:53817 - "POST /webhook HTTP/1.1" 200 OK

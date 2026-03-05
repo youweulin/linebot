@@ -21,13 +21,9 @@ import tempfile
 from contextlib import contextmanager
 from datetime import datetime
 
-import gspread
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
-from google.oauth2.service_account import Credentials as SACredentials
 from langfuse import Langfuse
 from langfuse.openai import openai as langfuse_openai  
 from linebot import LineBotApi, WebhookHandler
@@ -36,6 +32,7 @@ from linebot.models import (
     MessageEvent, TextMessage,
     ImageMessage, VideoMessage, FileMessage,
 )
+import gws_client
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 環境變數讀取
@@ -49,9 +46,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "工作表1")
-GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
-GOOGLE_DRIVE_OAUTH_JSON = os.getenv("GOOGLE_DRIVE_OAUTH_JSON", "")
 NOT_FOUND_MESSAGE = os.getenv("NOT_FOUND_MESSAGE", "找不到您要查詢的檔案，請嘗試其他關鍵字。")
 MEMORY_WINDOW = int(os.getenv("MEMORY_WINDOW", "10"))
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
@@ -116,112 +111,24 @@ def save_message(user_id: str, role: str, content: str):
         conn.commit()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Google 服務整合 (Drive & Sheets)
+# Google 服務整合 (透過 gws CLI)
 # ══════════════════════════════════════════════════════════════════════════════
-def _parse_json_credentials(raw_json: str, label: str = "JSON") -> dict:
-    """安全解析 JSON 金鑰，處理 Zeabur 環境變數的各種奇怪跳脫問題"""
-    raw_json = raw_json.strip().strip("'").strip('"')
-    raw_json = raw_json.replace('\n', '\\n')
-    raw_json = raw_json.replace('\r', '')
-    if '\\"' in raw_json:
-        raw_json = raw_json.replace('\\"', '"')
-    try:
-        return json.loads(raw_json, strict=False)
-    except json.JSONDecodeError as e:
-        logger.error("🛑 解析 %s 失敗。長度=%d, 錯誤=%s", label, len(raw_json), e)
-        raise e
-
-def get_google_credentials_dict() -> dict:
-    """取得 Service Account 金鑰 (主要用於 Google Sheets)"""
-    if not GOOGLE_CREDENTIALS_JSON:
-        raise ValueError("GOOGLE_CREDENTIALS_JSON 未設定")
-    return _parse_json_credentials(GOOGLE_CREDENTIALS_JSON, "GOOGLE_CREDENTIALS_JSON")
-
-def _get_drive_credentials():
-    """取得 Google Drive 專用認證。優先使用 OAuth2 Token (用所長的個人儲存空間)，否則 fallback 到 SA。"""
-    if GOOGLE_DRIVE_OAUTH_JSON:
-        try:
-            creds_dict = _parse_json_credentials(GOOGLE_DRIVE_OAUTH_JSON, "GOOGLE_DRIVE_OAUTH_JSON")
-            from google.oauth2.credentials import Credentials
-            logger.info("📁 Drive 使用 OAuth2 個人帳號認證")
-            return Credentials.from_authorized_user_info(creds_dict)
-        except Exception as e:
-            logger.warning("⚠️ GOOGLE_DRIVE_OAUTH_JSON 解析失敗，回退 Service Account: %s", e)
-    
-    # Fallback: 使用 Service Account
-    creds_dict = get_google_credentials_dict()
-    scopes = ["https://www.googleapis.com/auth/drive"]
-    logger.info("📁 Drive 使用 Service Account 認證")
-    return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
-
-def _get_sheets_credentials():
-    """取得 Google Sheets 專用認證 (永遠使用 Service Account)"""
-    creds_dict = get_google_credentials_dict()
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
-
-
-def get_google_sheet():
-    """使用 Service Account 認證來存取 Google Sheets (檔案索引分頁)"""
-    gc = gspread.service_account_from_dict(get_google_credentials_dict())
-    spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
-    try:
-        return spreadsheet.worksheet(GOOGLE_SHEET_NAME)
-    except Exception:
-        logger.warning("⚠️ 找不到名為 '%s' 的分頁，改用第一個分頁", GOOGLE_SHEET_NAME)
-        return spreadsheet.sheet1
-
 
 def get_or_create_sheet_tab(tab_name: str, headers: list[str]):
-    """
-    取得或自動建立指定名稱的 Sheets 分頁。
-    如果分頁不存在，會自動建立並寫入標題列 (headers)。
-    這是所有功能分頁的通用方法。
-    """
-    gc = gspread.service_account_from_dict(get_google_credentials_dict())
-    spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
-
-    try:
-        sheet = spreadsheet.worksheet(tab_name)
-    except gspread.exceptions.WorksheetNotFound:
-        logger.info("🆕 建立新分頁: %s", tab_name)
-        sheet = spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=20)
-        sheet.append_row(headers)
-
-    return sheet
+    """取得或自動建立指定名稱的 Sheets 分頁（委託 gws_client）。回傳 tab_name。"""
+    return gws_client.get_or_create_tab(tab_name, headers)
 
 def get_recent_records_from_sheet(tab_name: str, headers: list[str] = [], limit: int = 5) -> list[dict]:
-    """從指定分頁取得最新 N 筆資料（反排序）並封裝成字典的 List。如果分頁不存在，會自動建立空分頁然後回傳空 List。"""
-    try:
-        sheet = get_or_create_sheet_tab(tab_name, headers)
-        values = sheet.get_all_values()
-        if not values or len(values) < 2:
-            return []
-            
-        sheet_headers = values[0]
-        records = []
-        for row in values[1:]:
-            # 將資料列補齊長度，如果不足的地方用空字串填補
-            row_data = row + [""] * (len(sheet_headers) - len(row))
-            records.append(dict(zip(sheet_headers, row_data)))
-            
-        # 反序排列，最新的在前面
-        records.reverse()
-        return records[:limit]
-    except Exception as e:
-        logger.error("讀取分頁 %s 失敗: %s", tab_name, e)
-        return []
-
+    """從指定分頁取得最新 N 筆資料（反排序）。"""
+    return gws_client.get_recent_records(tab_name, headers, limit)
 
 def append_to_google_sheet(timestamp: str, filename: str, tags: str, file_url: str):
     """將備份紀錄寫入 Google Sheets (自動新增一列)"""
-    try:
-        sheet = get_google_sheet()
-        # 假設 Sheets 的欄位：A=Timestamp, B=Filename, C=Tags, D=File URL
-        sheet.append_row([timestamp, filename, tags, file_url])
+    ok = gws_client.sheets_append_row(GOOGLE_SHEET_NAME, [timestamp, filename, tags, file_url])
+    if ok:
         logger.info("✅ 成功將索引寫入 Google Sheets: %s", filename)
-    except Exception as e:
-        logger.error("寫入 Google Sheets 失敗: %s", e)
+    else:
+        logger.error("寫入 Google Sheets 失敗")
 
 
 def backup_media_to_drive(
@@ -230,7 +137,7 @@ def backup_media_to_drive(
     filename: str,
 ) -> tuple[str | None, bytes | None]:
     """
-    從 LINE 下載媒體，上傳至 Drive。
+    從 LINE 下載媒體，上傳至 Drive（透過 gws CLI）。
     回傳 (Drive 連結, 原始 bytes)。
     """
     if not GOOGLE_DRIVE_FOLDER_ID:
@@ -240,28 +147,20 @@ def backup_media_to_drive(
         media_content = line_bot_api.get_message_content(message_id)
         raw_bytes = b"".join(media_content.iter_content())
 
-        drive_service = build("drive", "v3", credentials=_get_drive_credentials())
-        file_metadata = {
-            "name": filename,
-            "parents": [GOOGLE_DRIVE_FOLDER_ID],
-        }
-        media = MediaIoBaseUpload(
-            io.BytesIO(raw_bytes),
-            mimetype=mime_type,
-            resumable=True,
-        )
-        uploaded = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields="id,webViewLink",
-        ).execute()
+        # 先寫入暫存檔
+        tmp_path = os.path.join(tempfile.gettempdir(), filename)
+        with open(tmp_path, "wb") as f:
+            f.write(raw_bytes)
 
-        drive_service.permissions().create(
-            fileId=uploaded["id"],
-            body={"type": "anyone", "role": "reader"},
-        ).execute()
+        # 透過 gws CLI 上傳
+        link = gws_client.drive_upload(tmp_path, GOOGLE_DRIVE_FOLDER_ID, filename, mime_type)
 
-        link = uploaded.get("webViewLink", "")
+        # 清理暫存檔
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
         return link, raw_bytes
     except Exception as e:
         logger.error("Google Drive 備份失敗: %s", e)
@@ -354,18 +253,23 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
 
 def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
     """
-    在 Google Sheets 中尋找符合關鍵字的檔案。
+    在 Google Sheets 中尋找符合關鍵字的檔案（透過 gws CLI）。
     欄位彈性比對：會對整列的所有文字欄位做搜尋。
     """
     try:
-        sheet = get_google_sheet()
-        records = sheet.get_all_records()
+        values = gws_client.sheets_get_all_values(GOOGLE_SHEET_NAME)
+        if not values or len(values) < 2:
+            logger.warning("⚠️ Google Sheets 是空的，沒有任何記錄！")
+            return None
+
+        headers = values[0]
+        records = []
+        for row in values[1:]:
+            row_data = row + [""] * (len(headers) - len(row))
+            records.append(dict(zip(headers, row_data)))
 
         if records:
             logger.info("🔍 Sheets 欄位名稱 (除錯用): %s", list(records[0].keys()))
-        else:
-            logger.warning("⚠️ Google Sheets 是空的，沒有任何記錄！")
-            return None
 
         keywords = [k.strip().lower() for k in search_query.split(",")]
 

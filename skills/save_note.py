@@ -30,16 +30,13 @@ def execute(args: dict, context: dict) -> dict:
     執行筆記儲存，寫入獨立的「📝 筆記本」分頁。
     """
     content = args.get("content", "")
-    get_or_create_sheet_tab = context.get("get_or_create_sheet_tab")
-
-    if not get_or_create_sheet_tab:
-        return {"saved": False, "time_str": "", "content": content}
 
     try:
+        import gws_client
         from datetime import datetime
         time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
-        sheet = get_or_create_sheet_tab(TAB_NAME, HEADERS)
-        sheet.append_row([time_str, content])
-        return {"saved": True, "time_str": time_str, "content": content}
+        gws_client.get_or_create_tab(TAB_NAME, HEADERS)
+        ok = gws_client.sheets_append_row(TAB_NAME, [time_str, content])
+        return {"saved": ok, "time_str": time_str, "content": content}
     except Exception as e:
         return {"saved": False, "time_str": "", "content": content, "error": str(e)}

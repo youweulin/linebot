@@ -78,18 +78,14 @@ def execute(args: dict, context: dict) -> dict:
     notes = args.get("notes", "")
     card_url = args.get("card_url", "")  # 名片圖檔連結（由圖片處理流程傳入）
 
-    get_or_create_sheet_tab = context.get("get_or_create_sheet_tab")
-
-    if not get_or_create_sheet_tab:
-        return {"saved": False, "name": name}
-
     try:
+        import gws_client
         from datetime import datetime
         time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
-        sheet = get_or_create_sheet_tab(TAB_NAME, HEADERS)
-        sheet.append_row([time_str, name, company, title, phone, email, address, industry, summary, meet_event, card_url, notes])
+        gws_client.get_or_create_tab(TAB_NAME, HEADERS)
+        ok = gws_client.sheets_append_row(TAB_NAME, [time_str, name, company, title, phone, email, address, industry, summary, meet_event, card_url, notes])
         return {
-            "saved": True,
+            "saved": ok,
             "time_str": time_str,
             "name": name,
             "company": company,
