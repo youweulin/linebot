@@ -33,6 +33,7 @@ from linebot.models import (
     ImageMessage, VideoMessage, FileMessage,
 )
 import gws_client
+import flex_messages
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 環境變數讀取
