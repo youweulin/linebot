@@ -379,14 +379,19 @@ def get_contact_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage
         return _get_empty_carousel("📇 通訊錄", "目前通訊錄是空的喔！")
     bubbles = []
     for r in records:
-        phone = str(r.get("電話", ""))
-        email = str(r.get("Email", ""))
+        phone_raw = str(r.get("電話", "")).strip()
+        email_raw = str(r.get("Email", "")).strip()
         buttons = []
-        if phone:
-            tel_uri = f"tel:{phone.replace(' ', '').replace('-', '')}"
-            buttons.append({"type": "button", "style": "secondary", "height": "sm", "margin": "sm", "action": {"type": "uri", "label": "📞 撥號", "uri": tel_uri}})
-        if email:
-            buttons.append({"type": "button", "style": "secondary", "height": "sm", "margin": "sm", "action": {"type": "uri", "label": "📩 寫信", "uri": f"mailto:{email}"}})
+        
+        # 電話：只保留數字和 + 號，確保 tel: URI 合法
+        import re
+        phone_digits = re.sub(r'[^\d+]', '', phone_raw)
+        if phone_digits and len(phone_digits) >= 7:
+            buttons.append({"type": "button", "style": "secondary", "height": "sm", "margin": "sm", "action": {"type": "uri", "label": "📞 撥號", "uri": f"tel:{phone_digits}"}})
+        
+        # Email：只有包含 @ 才產生按鈕
+        if email_raw and "@" in email_raw:
+            buttons.append({"type": "button", "style": "secondary", "height": "sm", "margin": "sm", "action": {"type": "uri", "label": "📩 寫信", "uri": f"mailto:{email_raw}"}})
 
         body_contents = [
             {"type": "text", "text": str(r.get("公司", "")) or " ", "color": "#888888", "size": "xs"},
@@ -437,3 +442,22 @@ def get_note_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
         "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "開啟筆記本", "uri": sheet_url}}]}
     })
     return FlexSendMessage(alt_text="📝 近期筆記", contents={"type": "carousel", "contents": bubbles})
+
+def get_text_flex(text: str) -> FlexSendMessage:
+    """用 Flex Message 包裝純文字，避免 TextSendMessage SDK Bug"""
+    bubble = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": text,
+                    "wrap": True,
+                    "size": "md"
+                }
+            ]
+        }
+    }
+    return FlexSendMessage(alt_text=text[:40] if len(text) > 40 else text, contents=bubble)

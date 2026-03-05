@@ -33,7 +33,7 @@ from langfuse.openai import openai as langfuse_openai
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage,
+    MessageEvent, TextMessage,
     ImageMessage, VideoMessage, FileMessage,
 )
 
@@ -418,9 +418,9 @@ async def webhook(request: Request):
 import flex_messages
 from skills import run_skill
 
-def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> TextSendMessage:
+def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> FlexSendMessage:
     if not records:
-        return TextSendMessage(text=f"目前沒有 {cmd} 紀錄喔！")
+        return flex_messages.get_text_flex(f"目前沒有 {cmd} 紀錄喔！")
     
     lines = [f"🔍 最近的 {cmd} 紀錄：\n"]
     for r in records:
@@ -444,7 +444,7 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Text
             lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
             
     lines.append(f"\n🔗 開啟完整試算表：\n{base_url}")
-    return TextSendMessage(text="\n".join(lines))
+    return flex_messages.get_text_flex("\n".join(lines))
 
 # ── 文字訊息：Skills 智能路由 ─────────────────────────────────────────────
 @handler.add(MessageEvent, message=TextMessage)
@@ -476,12 +476,13 @@ def handle_text_message(event: MessageEvent):
             
         if reply_message:
             try:
-                # 送出前記錄 JSON 方便 debug
-                import json as _json
-                logger.info("📤 即將送出 Flex: %s", _json.dumps(reply_message.contents, ensure_ascii=False, default=str)[:2000])
+                # 記錄準備送出的訊息內容方便 debug
+                logger.info("📤 即將送出文字回覆...")
                 line_bot_api.reply_message(event.reply_token, reply_message)
             except Exception as e:
+                import traceback
                 logger.error("🛑 快捷指令回覆失敗: %s", e)
+                logger.error(traceback.format_exc())
                 # reply_token 已被消耗，不能再 reply，只記 log
             return
 
@@ -513,7 +514,7 @@ def handle_text_message(event: MessageEvent):
                 reply_message = flex_messages.get_search_result_flex(result["keywords"], result["url"])
                 save_message(user_id, "assistant", f"找到了！{result['url']}")
             else:
-                reply_message = TextSendMessage(text=NOT_FOUND_MESSAGE)
+                reply_message = flex_messages.get_text_flex(NOT_FOUND_MESSAGE)
                 save_message(user_id, "assistant", NOT_FOUND_MESSAGE)
 
         elif action == "save_note":
@@ -523,7 +524,7 @@ def handle_text_message(event: MessageEvent):
                 )
                 save_message(user_id, "assistant", "已幫您把筆記存下來了！")
             else:
-                reply_message = TextSendMessage(text="❌ 筆記儲存失敗，請稍後再試。")
+                reply_message = flex_messages.get_text_flex("❌ 筆記儲存失敗，請稍後再試。")
 
         elif action == "add_expense":
             if result.get("saved"):
@@ -532,7 +533,7 @@ def handle_text_message(event: MessageEvent):
                 )
                 save_message(user_id, "assistant", f"已記帳: {result['item']} ${result['amount']}")
             else:
-                reply_message = TextSendMessage(text="❌ 記帳失敗，請稍後再試。")
+                reply_message = flex_messages.get_text_flex("❌ 記帳失敗，請稍後再試。")
 
         elif action == "add_event":
             if result.get("saved"):
@@ -544,7 +545,7 @@ def handle_text_message(event: MessageEvent):
                 )
                 save_message(user_id, "assistant", f"已排程: {result['event_name']}")
             else:
-                reply_message = TextSendMessage(text="❌ 排程儲存失敗，請稍後再試。")
+                reply_message = flex_messages.get_text_flex("❌ 排程儲存失敗，請稍後再試。")
 
         elif action == "add_task":
             if result.get("saved"):
@@ -554,7 +555,7 @@ def handle_text_message(event: MessageEvent):
                 )
                 save_message(user_id, "assistant", f"已建立待辦: {result['task']}")
             else:
-                reply_message = TextSendMessage(text="❌ 待辦儲存失敗，請稍後再試。")
+                reply_message = flex_messages.get_text_flex("❌ 待辦儲存失敗，請稍後再試。")
 
         elif action == "query_records":
             if result.get("queried"):
@@ -578,7 +579,7 @@ def handle_text_message(event: MessageEvent):
                     
                 save_message(user_id, "assistant", f"為您查詢 {cmd} 紀錄。")
             else:
-                reply_message = TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
+                reply_message = flex_messages.get_text_flex("❌ 查詢失敗，請稍後再試。")
 
         elif action == "save_contact":
             if result.get("saved"):
@@ -592,11 +593,11 @@ def handle_text_message(event: MessageEvent):
                 )
                 save_message(user_id, "assistant", f"已儲存聯絡人: {result['name']}")
             else:
-                reply_message = TextSendMessage(text="❌ 聯絡人儲存失敗，請稍後再試。")
+                reply_message = flex_messages.get_text_flex("❌ 聯絡人儲存失敗，請稍後再試。")
 
         else:
             # 未來新增的 skill 若沒有特殊 UI，回傳純文字
-            reply_message = TextSendMessage(text=str(result))
+            reply_message = flex_messages.get_text_flex(str(result))
             save_message(user_id, "assistant", str(result))
 
     line_bot_api.reply_message(event.reply_token, reply_message)
@@ -659,7 +660,7 @@ def handle_image_message(event: MessageEvent):
 
     link, raw_bytes = backup_media_to_drive(msg_id, "image/jpeg", filename)
     if not link:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 備份寫入失敗"))
+        line_bot_api.reply_message(event.reply_token, flex_messages.get_text_flex("❌ 備份寫入失敗"))
         return
 
     # 名片偵測：先看看是不是名片
@@ -721,7 +722,7 @@ def handle_video_message(event: MessageEvent):
         receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
         line_bot_api.reply_message(event.reply_token, receipt_flex)
     else:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 影片備份失敗"))
+        line_bot_api.reply_message(event.reply_token, flex_messages.get_text_flex("❌ 影片備份失敗"))
 
 
 @handler.add(MessageEvent, message=FileMessage)
@@ -740,4 +741,4 @@ def handle_file_message(event: MessageEvent):
         receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
         line_bot_api.reply_message(event.reply_token, receipt_flex)
     else:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 檔案備份失敗"))
+        line_bot_api.reply_message(event.reply_token, flex_messages.get_text_flex("❌ 檔案備份失敗"))
