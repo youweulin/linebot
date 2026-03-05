@@ -50,6 +50,7 @@ GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "工作表1")
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
 GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+GOOGLE_DRIVE_OAUTH_JSON = os.getenv("GOOGLE_DRIVE_OAUTH_JSON", "")
 NOT_FOUND_MESSAGE = os.getenv("NOT_FOUND_MESSAGE", "找不到您要查詢的檔案，請嘗試其他關鍵字。")
 MEMORY_WINDOW = int(os.getenv("MEMORY_WINDOW", "10"))
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "")
@@ -116,59 +117,52 @@ def save_message(user_id: str, role: str, content: str):
 # ══════════════════════════════════════════════════════════════════════════════
 # Google 服務整合 (Drive & Sheets)
 # ══════════════════════════════════════════════════════════════════════════════
-def get_google_credentials_dict() -> dict:
-    """安全解析 GCP JSON，處理可能是 Service Account 或 OAuth2 Token 的格式"""
-    raw_json = GOOGLE_CREDENTIALS_JSON
-    if not raw_json:
-        raise ValueError("GOOGLE_CREDENTIALS_JSON 未設定")
-        
-    # 如果使用者在 Zeabur 貼上時不小心前後加了單引號或雙引號，剝掉它
+def _parse_json_credentials(raw_json: str, label: str = "JSON") -> dict:
+    """安全解析 JSON 金鑰，處理 Zeabur 環境變數的各種奇怪跳脫問題"""
     raw_json = raw_json.strip().strip("'").strip('"')
-
-    # 修復 Zeabur 特有狀況：環境變量內容中的 \n 變成實體換行符號，導致 JSON 視其為 Illegal Control Character。
-    # 我們主動將「實體換行(\n)」或是各種不可視字元，轉換為合法的字串 "\\n"，幫助 json.loads 通過。
     raw_json = raw_json.replace('\n', '\\n')
     raw_json = raw_json.replace('\r', '')
-
-    # 如果有被誤加上跳脫雙引號，也嘗試清理
     if '\\"' in raw_json:
         raw_json = raw_json.replace('\\"', '"')
-
     try:
-        # 如果還是還有其他特殊的 control character，由 strict=False 承接
         return json.loads(raw_json, strict=False)
     except json.JSONDecodeError as e:
-        logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗。長度=%d, 錯誤=%s", len(raw_json), e)
+        logger.error("🛑 解析 %s 失敗。長度=%d, 錯誤=%s", label, len(raw_json), e)
         raise e
 
-def _get_google_credentials():
-    creds_dict = get_google_credentials_dict()
+def get_google_credentials_dict() -> dict:
+    """取得 Service Account 金鑰 (主要用於 Google Sheets)"""
+    if not GOOGLE_CREDENTIALS_JSON:
+        raise ValueError("GOOGLE_CREDENTIALS_JSON 未設定")
+    return _parse_json_credentials(GOOGLE_CREDENTIALS_JSON, "GOOGLE_CREDENTIALS_JSON")
+
+def _get_drive_credentials():
+    """取得 Google Drive 專用認證。優先使用 OAuth2 Token (用所長的個人儲存空間)，否則 fallback 到 SA。"""
+    if GOOGLE_DRIVE_OAUTH_JSON:
+        try:
+            creds_dict = _parse_json_credentials(GOOGLE_DRIVE_OAUTH_JSON, "GOOGLE_DRIVE_OAUTH_JSON")
+            from google.oauth2.credentials import Credentials
+            logger.info("📁 Drive 使用 OAuth2 個人帳號認證")
+            return Credentials.from_authorized_user_info(creds_dict)
+        except Exception as e:
+            logger.warning("⚠️ GOOGLE_DRIVE_OAUTH_JSON 解析失敗，回退 Service Account: %s", e)
     
-    if "refresh_token" in creds_dict:
-        # User OAuth2 Token 格式：不要強制覆蓋 scopes，以免跟原本授權的範圍起衝突導致 invalid_scope
-        from google.oauth2.credentials import Credentials
-        return Credentials.from_authorized_user_info(creds_dict)
-    else:
-        # Service Account 格式：需要明確指定 scopes
-        scopes = [
-            "https://www.googleapis.com/auth/drive",
-            "https://www.googleapis.com/auth/spreadsheets"
-        ]
-        return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
+    # Fallback: 使用 Service Account
+    creds_dict = get_google_credentials_dict()
+    scopes = ["https://www.googleapis.com/auth/drive"]
+    logger.info("📁 Drive 使用 Service Account 認證")
+    return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
+
+def _get_sheets_credentials():
+    """取得 Google Sheets 專用認證 (永遠使用 Service Account)"""
+    creds_dict = get_google_credentials_dict()
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    return SACredentials.from_service_account_info(creds_dict, scopes=scopes)
 
 
 def get_google_sheet():
-    creds_dict = get_google_credentials_dict()
-    
-    if "refresh_token" in creds_dict:
-        # 初始化為 OAuth 使用者金鑰
-        from google.oauth2.credentials import Credentials
-        credentials = Credentials.from_authorized_user_info(creds_dict)
-        gc = gspread.authorize(credentials)
-    else:
-        # 初始化為 Service Account
-        gc = gspread.service_account_from_dict(creds_dict)
-        
+    """使用 Service Account 認證來存取 Google Sheets"""
+    gc = gspread.service_account_from_dict(get_google_credentials_dict())
     return gc.open_by_key(GOOGLE_SHEET_ID).worksheet(GOOGLE_SHEET_NAME)
 
 
@@ -199,7 +193,7 @@ def backup_media_to_drive(
         media_content = line_bot_api.get_message_content(message_id)
         raw_bytes = b"".join(media_content.iter_content())
 
-        drive_service = build("drive", "v3", credentials=_get_google_credentials())
+        drive_service = build("drive", "v3", credentials=_get_drive_credentials())
         file_metadata = {
             "name": filename,
             "parents": [GOOGLE_DRIVE_FOLDER_ID],
