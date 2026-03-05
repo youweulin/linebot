@@ -46,6 +46,7 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "gpt-4o")
 GOOGLE_SHEET_ID = os.environ["GOOGLE_SHEET_ID"]
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "工作表1")
 GOOGLE_CREDENTIALS_JSON = os.environ["GOOGLE_CREDENTIALS_JSON"]
@@ -250,7 +251,7 @@ def analyze_image_with_vision(image_bytes: bytes) -> str:
     try:
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
         response = openai_client.chat.completions.create(
-            model="gpt-4o",  # 強制使用具備視覺能力的模型
+            model=OPENAI_VISION_MODEL,  # 強制使用具備視覺能力的模型
             messages=[
                 {
                     "role": "system",
@@ -502,7 +503,7 @@ def extract_namecard_info(image_bytes: bytes) -> dict | None:
     try:
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
         response = openai_client.chat.completions.create(
-            model="gpt-4o",
+            model=OPENAI_VISION_MODEL,
             messages=[
                 {
                     "role": "system",
