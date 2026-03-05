@@ -556,7 +556,8 @@ def handle_image_message(event: MessageEvent):
 
         receipt_flex = flex_messages.get_backup_receipt_flex(
             "📇 名片掃描", " | ".join(info_parts), timestamp_display, link,
-            folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else ""
+            folder_url=f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/edit",
+            folder_label="📊 開啟通訊錄"
         )
     else:
         # 普通圖片：走原本的標籤流程

@@ -75,7 +75,7 @@ def get_welcome_flex() -> FlexSendMessage:
     return FlexSendMessage(alt_text="雲端小秘書主選單", contents=bubble)
 
 
-def get_backup_receipt_flex(filename: str, tags: str, time_str: str, file_url: str, folder_url: str = "") -> FlexSendMessage:
+def get_backup_receipt_flex(filename: str, tags: str, time_str: str, file_url: str, folder_url: str = "", folder_label: str = "📁 開啟雲端資料夾") -> FlexSendMessage:
     """產生備份成功的收據 Flex Message"""
     bubble = {
         "type": "bubble",
@@ -189,7 +189,7 @@ def get_backup_receipt_flex(filename: str, tags: str, time_str: str, file_url: s
         footer_buttons.append({
             "type": "button",
             "style": "secondary",
-            "action": {"type": "uri", "label": "📁 開啟雲端資料夾", "uri": folder_url}
+            "action": {"type": "uri", "label": folder_label, "uri": folder_url}
         })
     if footer_buttons:
         bubble["footer"] = {
