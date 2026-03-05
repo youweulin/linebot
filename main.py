@@ -418,6 +418,34 @@ async def webhook(request: Request):
 import flex_messages
 from skills import run_skill
 
+def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> TextSendMessage:
+    if not records:
+        return TextSendMessage(text=f"目前沒有 {cmd} 紀錄喔！")
+    
+    lines = [f"🔍 最近的 {cmd} 紀錄：\n"]
+    for r in records:
+        if cmd == "記帳":
+            lines.append(f"💰 {r.get('項目', '未知')} : ${r.get('金額', '0')} ({str(r.get('紀錄時間', ''))[:10]})")
+        elif cmd == "待辦":
+            status = str(r.get("狀態(未完成/已完成)", "未完成"))
+            mark = "✅" if "已完成" in status else "❌"
+            lines.append(f"{mark} {r.get('待辦事項', '')} (期限: {r.get('預計完成日', '無')})")
+        elif cmd in ["排程", "行程", "行事曆"]:
+            lines.append(f"📅 {r.get('事件名稱', '')} : {r.get('事件日期', '')} {r.get('事件時間', '')}")
+        elif cmd in ["名片", "通訊錄", "聯絡人"]:
+            lines.append(f"📇 {r.get('姓名', '未知')} - {r.get('公司', '')} {r.get('職稱', '')}")
+            if r.get("電話"):
+                lines.append(f"   📞 {r.get('電話')}")
+            if r.get("Email"):
+                lines.append(f"   📩 {r.get('Email')}")
+        elif cmd in ["筆記", "備忘錄"]:
+            content = str(r.get("筆記內容", ""))
+            short_content = (content[:30] + "...") if len(content) > 30 else content
+            lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
+            
+    lines.append(f"\n🔗 開啟完整試算表：\n{base_url}")
+    return TextSendMessage(text="\n".join(lines))
+
 # ── 文字訊息：Skills 智能路由 ─────────────────────────────────────────────
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event: MessageEvent):
@@ -430,22 +458,21 @@ def handle_text_message(event: MessageEvent):
         cmd = user_message[1:].strip()
         reply_message = None
         base_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/edit"
+        records = None
         
         if cmd == "記帳":
             records = get_recent_records_from_sheet("💰 記帳本", limit=5)
-            reply_message = flex_messages.get_expense_carousel(records, base_url)
         elif cmd == "待辦":
             records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
-            reply_message = flex_messages.get_task_carousel(records, base_url)
         elif cmd in ["排程", "行程", "行事曆"]:
             records = get_recent_records_from_sheet("📅 行事曆", limit=5)
-            reply_message = flex_messages.get_event_carousel(records, base_url)
         elif cmd in ["名片", "通訊錄", "聯絡人"]:
             records = get_recent_records_from_sheet("📇 通訊錄", limit=5)
-            reply_message = flex_messages.get_contact_carousel(records, base_url)
         elif cmd in ["筆記", "備忘錄"]:
             records = get_recent_records_from_sheet("📝 筆記本", limit=5)
-            reply_message = flex_messages.get_note_carousel(records, base_url)
+            
+        if records is not None:
+            reply_message = format_records_as_text(cmd, records, base_url)
             
         if reply_message:
             try:
@@ -534,21 +561,20 @@ def handle_text_message(event: MessageEvent):
                 cmd = result["mapped_cmd"]
                 base_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/edit"
                 
+                records = None
                 if cmd == "記帳":
                     records = get_recent_records_from_sheet("💰 記帳本", limit=5)
-                    reply_message = flex_messages.get_expense_carousel(records, base_url)
                 elif cmd == "待辦":
                     records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
-                    reply_message = flex_messages.get_task_carousel(records, base_url)
                 elif cmd in ["排程", "行程", "行事曆"]:
                     records = get_recent_records_from_sheet("📅 行事曆", limit=5)
-                    reply_message = flex_messages.get_event_carousel(records, base_url)
                 elif cmd in ["名片", "通訊錄", "聯絡人"]:
                     records = get_recent_records_from_sheet("📇 通訊錄", limit=5)
-                    reply_message = flex_messages.get_contact_carousel(records, base_url)
                 elif cmd in ["筆記", "備忘錄"]:
                     records = get_recent_records_from_sheet("📝 筆記本", limit=5)
-                    reply_message = flex_messages.get_note_carousel(records, base_url)
+                
+                if records is not None:    
+                    reply_message = format_records_as_text(cmd, records, base_url)
                     
                 save_message(user_id, "assistant", f"為您查詢 {cmd} 紀錄。")
             else:
