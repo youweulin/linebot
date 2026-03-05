@@ -275,3 +275,160 @@ def get_search_result_flex(keyword: str, file_url: str) -> FlexSendMessage:
         }
     }
     return FlexSendMessage(alt_text=f"找到檔案: {keyword}", contents=bubble)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 百寶箱查詢：Carousel UI
+# ══════════════════════════════════════════════════════════════════════════════
+def _get_empty_carousel(title: str, message: str) -> FlexSendMessage:
+    bubble = {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": title, "weight": "bold", "size": "xl"},
+                {"type": "text", "text": message, "margin": "md", "color": "#888888"}
+            ]
+        }
+    }
+    return FlexSendMessage(alt_text=message, contents={"type": "carousel", "contents": [bubble]})
+
+def get_expense_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
+    if not records:
+        return _get_empty_carousel("💰 記帳本", "目前沒有記帳紀錄喔！")
+    bubbles = []
+    for r in records:
+        b = {
+            "type": "bubble",
+            "size": "micro",
+            "header": {"type": "box", "layout": "vertical", "backgroundColor": "#FF7E67", "contents": [{"type": "text", "text": "💰 花費", "color": "#FFFFFF", "weight": "bold"}]},
+            "body": {
+                "type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": str(r.get("項目", "")), "weight": "bold", "size": "lg", "wrap": True},
+                    {"type": "text", "text": f"${r.get('金額', '')}", "color": "#FF3333", "weight": "bold", "size": "xl"},
+                    {"type": "text", "text": str(r.get("紀錄時間", "")), "color": "#aaaaaa", "size": "xs", "margin": "md"},
+                    {"type": "text", "text": str(r.get("類別", "")), "color": "#aaaaaa", "size": "xs"}
+                ]
+            }
+        }
+        bubbles.append(b)
+    # 最後一頁放開啟 Sheet 按鈕
+    bubbles.append({
+        "type": "bubble", "size": "micro",
+        "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "開啟完整帳本", "uri": sheet_url}}]}
+    })
+    return FlexSendMessage(alt_text="💰 近期記帳紀錄", contents={"type": "carousel", "contents": bubbles})
+
+
+def get_task_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
+    if not records:
+        return _get_empty_carousel("✅ 待辦清單", "目前沒有待辦事項，太棒了！")
+    bubbles = []
+    for r in records:
+        status = str(r.get("狀態(未完成/已完成)", "未完成"))
+        color = "#1DB446" if "已完成" in status else "#FF7E67"
+        b = {
+            "type": "bubble",
+            "size": "micro",
+            "header": {"type": "box", "layout": "vertical", "backgroundColor": "#4B89DC", "contents": [{"type": "text", "text": "✅ 任務", "color": "#FFFFFF", "weight": "bold"}]},
+            "body": {
+                "type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": str(r.get("待辦事項", "")), "weight": "bold", "size": "md", "wrap": True},
+                    {"type": "text", "text": f"期限: {r.get('預計完成日', '無')}", "color": "#666666", "size": "xs", "margin": "sm"},
+                    {"type": "text", "text": status, "color": color, "weight": "bold", "size": "sm", "margin": "md"}
+                ]
+            }
+        }
+        bubbles.append(b)
+    bubbles.append({
+        "type": "bubble", "size": "micro",
+        "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "前往打勾", "uri": sheet_url}}]}
+    })
+    return FlexSendMessage(alt_text="✅ 近期待辦清單", contents={"type": "carousel", "contents": bubbles})
+
+
+def get_event_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
+    if not records:
+        return _get_empty_carousel("📅 行事曆", "近期沒有排定的行程喔！")
+    bubbles = []
+    for r in records:
+        b = {
+            "type": "bubble",
+            "size": "micro",
+            "header": {"type": "box", "layout": "vertical", "backgroundColor": "#967ADC", "contents": [{"type": "text", "text": "📅 排程", "color": "#FFFFFF", "weight": "bold"}]},
+            "body": {
+                "type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": str(r.get("事件名稱", "")), "weight": "bold", "size": "md", "wrap": True},
+                    {"type": "text", "text": str(r.get("事件日期", "")), "color": "#1DB446", "size": "sm", "weight": "bold", "margin": "sm"},
+                    {"type": "text", "text": str(r.get("事件時間", "")), "color": "#666666", "size": "xs"},
+                    {"type": "text", "text": str(r.get("備註", ""))[:20], "color": "#aaaaaa", "size": "xs", "margin": "sm"}
+                ]
+            }
+        }
+        bubbles.append(b)
+    bubbles.append({
+        "type": "bubble", "size": "micro",
+        "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "開啟行事曆", "uri": sheet_url}}]}
+    })
+    return FlexSendMessage(alt_text="📅 近期行程", contents={"type": "carousel", "contents": bubbles})
+
+
+def get_contact_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
+    if not records:
+        return _get_empty_carousel("📇 通訊錄", "目前通訊錄是空的喔！")
+    bubbles = []
+    for r in records:
+        phone = str(r.get("電話", ""))
+        email = str(r.get("Email", ""))
+        buttons = []
+        if phone:
+            tel_uri = f"tel:{phone.replace(' ', '').replace('-', '')}"
+            buttons.append({"type": "button", "style": "secondary", "height": "sm", "margin": "sm", "action": {"type": "uri", "label": "📞 撥號", "uri": tel_uri}})
+        if email:
+            buttons.append({"type": "button", "style": "secondary", "height": "sm", "margin": "sm", "action": {"type": "uri", "label": "📩 寫信", "uri": f"mailto:{email}"}})
+
+        b = {
+            "type": "bubble",
+            "size": "kilo",
+            "body": {
+                "type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": str(r.get("公司", "")), "color": "#888888", "size": "xs"},
+                    {"type": "text", "text": str(r.get("姓名", "")), "weight": "bold", "size": "xl", "margin": "md"},
+                    {"type": "text", "text": str(r.get("職稱", "")), "color": "#666666", "size": "sm"},
+                    {"type": "text", "text": str(r.get("行業類別", "")), "color": "#1DB446", "size": "xs", "margin": "sm", "weight": "bold"},
+                    {"type": "text", "text": str(r.get("業務總結", "")), "color": "#aaaaaa", "size": "xs", "wrap": True},
+                    {"type": "box", "layout": "vertical", "margin": "lg", "contents": buttons} if buttons else {"type": "box", "layout": "vertical", "contents": []}
+                ]
+            }
+        }
+        bubbles.append(b)
+    bubbles.append({
+        "type": "bubble", "size": "micro",
+        "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "看完整名片", "uri": sheet_url}}]}
+    })
+    return FlexSendMessage(alt_text="📇 通訊錄", contents={"type": "carousel", "contents": bubbles})
+
+
+def get_note_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
+    if not records:
+        return _get_empty_carousel("📝 筆記本", "目前沒有筆記喔！")
+    bubbles = []
+    for r in records:
+        b = {
+            "type": "bubble",
+            "size": "micro",
+            "header": {"type": "box", "layout": "vertical", "backgroundColor": "#F3C13A", "contents": [{"type": "text", "text": "📝 筆記", "color": "#FFFFFF", "weight": "bold"}]},
+            "body": {
+                "type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": str(r.get("筆記內容", ""))[:50] + "..." if len(str(r.get("筆記內容", ""))) > 50 else str(r.get("筆記內容", "")), "size": "md", "wrap": True},
+                    {"type": "text", "text": str(r.get("紀錄時間", "")), "color": "#aaaaaa", "size": "xs", "margin": "md"}
+                ]
+            }
+        }
+        bubbles.append(b)
+    bubbles.append({
+        "type": "bubble", "size": "micro",
+        "body": {"type": "box", "layout": "vertical", "justifyContent": "center", "alignItems": "center", "contents": [{"type": "button", "style": "primary", "color": "#1DB446", "action": {"type": "uri", "label": "開啟筆記本", "uri": sheet_url}}]}
+    })
+    return FlexSendMessage(alt_text="📝 近期筆記", contents={"type": "carousel", "contents": bubbles})

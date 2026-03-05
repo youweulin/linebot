@@ -180,13 +180,27 @@ def get_or_create_sheet_tab(tab_name: str, headers: list[str]):
     """
     gc = gspread.service_account_from_dict(get_google_credentials_dict())
     spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
+
     try:
-        return spreadsheet.worksheet(tab_name)
+        sheet = spreadsheet.worksheet(tab_name)
     except gspread.exceptions.WorksheetNotFound:
-        logger.info("📊 自動建立新分頁: %s", tab_name)
-        worksheet = spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=len(headers))
-        worksheet.append_row(headers)
-        return worksheet
+        logger.info("🆕 建立新分頁: %s", tab_name)
+        sheet = spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=20)
+        sheet.append_row(headers)
+
+    return sheet
+
+def get_recent_records_from_sheet(tab_name: str, headers: list[str] = [], limit: int = 5) -> list[dict]:
+    """從指定分頁取得最新 N 筆資料（反排序）並封裝成字典的 List。如果分頁不存在，會自動建立空分頁然後回傳空 List。"""
+    try:
+        sheet = get_or_create_sheet_tab(tab_name, headers)
+        records = sheet.get_all_records()
+        # 反序排列，最新的在前面
+        records.reverse()
+        return records[:limit]
+    except Exception as e:
+        logger.error("讀取分頁 %s 失敗: %s", tab_name, e)
+        return []
 
 
 def append_to_google_sheet(timestamp: str, filename: str, tags: str, file_url: str):
@@ -398,8 +412,34 @@ from skills import run_skill
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event: MessageEvent):
     user_id = event.source.user_id
-    user_message = event.message.text
+    user_message = event.message.text.strip()
     logger.info("[%s] 收到文字: %s", user_id, user_message)
+
+    # 👉 攔截捷徑指令 (為了 Rich Menu 準備)
+    if user_message.startswith("#"):
+        cmd = user_message[1:].strip()
+        reply_message = None
+        base_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/edit"
+        
+        if cmd == "記帳":
+            records = get_recent_records_from_sheet("💰 記帳本", limit=5)
+            reply_message = flex_messages.get_expense_carousel(records, base_url)
+        elif cmd == "待辦":
+            records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
+            reply_message = flex_messages.get_task_carousel(records, base_url)
+        elif cmd in ["排程", "行程", "行事曆"]:
+            records = get_recent_records_from_sheet("📅 行事曆", limit=5)
+            reply_message = flex_messages.get_event_carousel(records, base_url)
+        elif cmd in ["名片", "通訊錄", "聯絡人"]:
+            records = get_recent_records_from_sheet("📇 通訊錄", limit=5)
+            reply_message = flex_messages.get_contact_carousel(records, base_url)
+        elif cmd in ["筆記", "備忘錄"]:
+            records = get_recent_records_from_sheet("📝 筆記本", limit=5)
+            reply_message = flex_messages.get_note_carousel(records, base_url)
+            
+        if reply_message:
+            line_bot_api.reply_message(event.reply_token, reply_message)
+            return
 
     history = get_history(user_id)
     save_message(user_id, "user", user_message)
@@ -471,6 +511,31 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", f"已建立待辦: {result['task']}")
             else:
                 reply_message = TextSendMessage(text="❌ 待辦儲存失敗，請稍後再試。")
+
+        elif action == "query_records":
+            if result.get("queried"):
+                cmd = result["mapped_cmd"]
+                base_url = f"https://docs.google.com/spreadsheets/d/{GOOGLE_SHEET_ID}/edit"
+                
+                if cmd == "記帳":
+                    records = get_recent_records_from_sheet("💰 記帳本", limit=5)
+                    reply_message = flex_messages.get_expense_carousel(records, base_url)
+                elif cmd == "待辦":
+                    records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
+                    reply_message = flex_messages.get_task_carousel(records, base_url)
+                elif cmd in ["排程", "行程", "行事曆"]:
+                    records = get_recent_records_from_sheet("📅 行事曆", limit=5)
+                    reply_message = flex_messages.get_event_carousel(records, base_url)
+                elif cmd in ["名片", "通訊錄", "聯絡人"]:
+                    records = get_recent_records_from_sheet("📇 通訊錄", limit=5)
+                    reply_message = flex_messages.get_contact_carousel(records, base_url)
+                elif cmd in ["筆記", "備忘錄"]:
+                    records = get_recent_records_from_sheet("📝 筆記本", limit=5)
+                    reply_message = flex_messages.get_note_carousel(records, base_url)
+                    
+                save_message(user_id, "assistant", f"為您查詢 {cmd} 紀錄。")
+            else:
+                reply_message = TextSendMessage(text="❌ 查詢失敗，請稍後再試。")
 
         elif action == "save_contact":
             if result.get("saved"):
