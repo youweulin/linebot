@@ -122,16 +122,17 @@ def get_google_credentials_dict() -> dict:
     if not raw_json:
         raise ValueError("GOOGLE_CREDENTIALS_JSON 未設定")
         
+    # 如果使用者在 Zeabur 貼上時不小心前後加了單引號或雙引號，剝掉它
     raw_json = raw_json.strip().strip("'").strip('"')
-    
-    if "\\n" in raw_json:
-        raw_json = raw_json.replace("\\n", "\n")
-        
+
+    # 修復 json 控制字元錯誤 (Invalid control character)：有時 Zeabur 會將 json 變量的內部換行變成實體換行，這在字串裡是不允許的。
+    # 用 strict=False 來容忍這些字元。
+    # 如果有被誤加上跳脫雙引號，也嘗試清理
     if '\\"' in raw_json:
         raw_json = raw_json.replace('\\"', '"')
 
     try:
-        return json.loads(raw_json)
+        return json.loads(raw_json, strict=False)
     except json.JSONDecodeError as e:
         logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗。長度=%d, 錯誤=%s", len(raw_json), e)
         raise e
