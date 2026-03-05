@@ -305,10 +305,10 @@ def get_expense_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#FF7E67", "contents": [{"type": "text", "text": "💰 花費", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": str(r.get("項目", "")), "weight": "bold", "size": "lg", "wrap": True},
-                    {"type": "text", "text": f"${r.get('金額', '')}", "color": "#FF3333", "weight": "bold", "size": "xl"},
-                    {"type": "text", "text": str(r.get("紀錄時間", "")), "color": "#aaaaaa", "size": "xs", "margin": "md"},
-                    {"type": "text", "text": str(r.get("類別", "")), "color": "#aaaaaa", "size": "xs"}
+                    {"type": "text", "text": str(r.get("項目", "")) or " ", "weight": "bold", "size": "lg", "wrap": True},
+                    {"type": "text", "text": f"${r.get('金額', '')}" if str(r.get('金額', '')) else " ", "color": "#FF3333", "weight": "bold", "size": "xl"},
+                    {"type": "text", "text": str(r.get("紀錄時間", "")) or " ", "color": "#aaaaaa", "size": "xs", "margin": "md"},
+                    {"type": "text", "text": str(r.get("類別", "")) or " ", "color": "#aaaaaa", "size": "xs"}
                 ]
             }
         }
@@ -334,9 +334,9 @@ def get_task_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#4B89DC", "contents": [{"type": "text", "text": "✅ 任務", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": str(r.get("待辦事項", "")), "weight": "bold", "size": "md", "wrap": True},
-                    {"type": "text", "text": f"期限: {r.get('預計完成日', '無')}", "color": "#666666", "size": "xs", "margin": "sm"},
-                    {"type": "text", "text": status, "color": color, "weight": "bold", "size": "sm", "margin": "md"}
+                    {"type": "text", "text": str(r.get("待辦事項", "")) or " ", "weight": "bold", "size": "md", "wrap": True},
+                    {"type": "text", "text": f"期限: {r.get('預計完成日', '無')}" or " ", "color": "#666666", "size": "xs", "margin": "sm"},
+                    {"type": "text", "text": status or " ", "color": color, "weight": "bold", "size": "sm", "margin": "md"}
                 ]
             }
         }
@@ -359,10 +359,10 @@ def get_event_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#967ADC", "contents": [{"type": "text", "text": "📅 排程", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": str(r.get("事件名稱", "")), "weight": "bold", "size": "md", "wrap": True},
-                    {"type": "text", "text": str(r.get("事件日期", "")), "color": "#1DB446", "size": "sm", "weight": "bold", "margin": "sm"},
-                    {"type": "text", "text": str(r.get("事件時間", "")), "color": "#666666", "size": "xs"},
-                    {"type": "text", "text": str(r.get("備註", ""))[:20], "color": "#aaaaaa", "size": "xs", "margin": "sm"}
+                    {"type": "text", "text": str(r.get("事件名稱", "")) or " ", "weight": "bold", "size": "md", "wrap": True},
+                    {"type": "text", "text": str(r.get("事件日期", "")) or " ", "color": "#1DB446", "size": "sm", "weight": "bold", "margin": "sm"},
+                    {"type": "text", "text": str(r.get("事件時間", "")) or " ", "color": "#666666", "size": "xs"},
+                    {"type": "text", "text": str(r.get("備註", ""))[:20] or " ", "color": "#aaaaaa", "size": "xs", "margin": "sm"}
                 ]
             }
         }
@@ -388,18 +388,21 @@ def get_contact_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage
         if email:
             buttons.append({"type": "button", "style": "secondary", "height": "sm", "margin": "sm", "action": {"type": "uri", "label": "📩 寫信", "uri": f"mailto:{email}"}})
 
+        body_contents = [
+            {"type": "text", "text": str(r.get("公司", "")) or " ", "color": "#888888", "size": "xs"},
+            {"type": "text", "text": str(r.get("姓名", "")) or "未知", "weight": "bold", "size": "xl", "margin": "md"},
+            {"type": "text", "text": str(r.get("職稱", "")) or " ", "color": "#666666", "size": "sm"},
+            {"type": "text", "text": str(r.get("行業類別", "")) or " ", "color": "#1DB446", "size": "xs", "margin": "sm", "weight": "bold"},
+            {"type": "text", "text": str(r.get("業務總結", "")) or " ", "color": "#aaaaaa", "size": "xs", "wrap": True}
+        ]
+        if buttons:
+            body_contents.append({"type": "box", "layout": "vertical", "margin": "lg", "contents": buttons})
+
         b = {
             "type": "bubble",
             "size": "kilo",
             "body": {
-                "type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": str(r.get("公司", "")), "color": "#888888", "size": "xs"},
-                    {"type": "text", "text": str(r.get("姓名", "")), "weight": "bold", "size": "xl", "margin": "md"},
-                    {"type": "text", "text": str(r.get("職稱", "")), "color": "#666666", "size": "sm"},
-                    {"type": "text", "text": str(r.get("行業類別", "")), "color": "#1DB446", "size": "xs", "margin": "sm", "weight": "bold"},
-                    {"type": "text", "text": str(r.get("業務總結", "")), "color": "#aaaaaa", "size": "xs", "wrap": True},
-                    {"type": "box", "layout": "vertical", "margin": "lg", "contents": buttons} if buttons else {"type": "box", "layout": "vertical", "contents": []}
-                ]
+                "type": "box", "layout": "vertical", "contents": body_contents
             }
         }
         bubbles.append(b)
@@ -415,14 +418,16 @@ def get_note_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
         return _get_empty_carousel("📝 筆記本", "目前沒有筆記喔！")
     bubbles = []
     for r in records:
+        note_content = str(r.get("筆記內容", ""))
+        display_content = (note_content[:50] + "...") if len(note_content) > 50 else note_content
         b = {
             "type": "bubble",
             "size": "micro",
             "header": {"type": "box", "layout": "vertical", "backgroundColor": "#F3C13A", "contents": [{"type": "text", "text": "📝 筆記", "color": "#FFFFFF", "weight": "bold"}]},
             "body": {
                 "type": "box", "layout": "vertical", "contents": [
-                    {"type": "text", "text": str(r.get("筆記內容", ""))[:50] + "..." if len(str(r.get("筆記內容", ""))) > 50 else str(r.get("筆記內容", "")), "size": "md", "wrap": True},
-                    {"type": "text", "text": str(r.get("紀錄時間", "")), "color": "#aaaaaa", "size": "xs", "margin": "md"}
+                    {"type": "text", "text": display_content or " ", "size": "md", "wrap": True},
+                    {"type": "text", "text": str(r.get("紀錄時間", "")) or " ", "color": "#aaaaaa", "size": "xs", "margin": "md"}
                 ]
             }
         }
