@@ -1,6 +1,6 @@
 """
 Skill: save_note
-功能：將使用者的文字筆記、備忘錄、待辦事項存入 Google Sheets。
+功能：將使用者的文字筆記、備忘錄、待辦事項存入 Google Sheets「📝 筆記本」分頁。
 """
 
 TOOL_DEF = {
@@ -21,17 +21,25 @@ TOOL_DEF = {
     }
 }
 
+TAB_NAME = "📝 筆記本"
+HEADERS = ["時間", "內容"]
+
 
 def execute(args: dict, context: dict) -> dict:
     """
-    執行筆記儲存。
-    回傳: {"saved": True/False, "time_str": "...", "content": "..."}
+    執行筆記儲存，寫入獨立的「📝 筆記本」分頁。
     """
     content = args.get("content", "")
-    save_note_fn = context.get("save_note_to_sheets")
+    get_or_create_sheet_tab = context.get("get_or_create_sheet_tab")
 
-    if save_note_fn:
-        time_str = save_note_fn(content)
+    if not get_or_create_sheet_tab:
+        return {"saved": False, "time_str": "", "content": content}
+
+    try:
+        from datetime import datetime
+        time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+        sheet = get_or_create_sheet_tab(TAB_NAME, HEADERS)
+        sheet.append_row([time_str, content])
         return {"saved": True, "time_str": time_str, "content": content}
-
-    return {"saved": False, "time_str": "", "content": content}
+    except Exception as e:
+        return {"saved": False, "time_str": "", "content": content, "error": str(e)}

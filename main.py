@@ -161,7 +161,7 @@ def _get_sheets_credentials():
 
 
 def get_google_sheet():
-    """使用 Service Account 認證來存取 Google Sheets"""
+    """使用 Service Account 認證來存取 Google Sheets (檔案索引分頁)"""
     gc = gspread.service_account_from_dict(get_google_credentials_dict())
     spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
     try:
@@ -169,6 +169,23 @@ def get_google_sheet():
     except Exception:
         logger.warning("⚠️ 找不到名為 '%s' 的分頁，改用第一個分頁", GOOGLE_SHEET_NAME)
         return spreadsheet.sheet1
+
+
+def get_or_create_sheet_tab(tab_name: str, headers: list[str]):
+    """
+    取得或自動建立指定名稱的 Sheets 分頁。
+    如果分頁不存在，會自動建立並寫入標題列 (headers)。
+    這是所有功能分頁的通用方法。
+    """
+    gc = gspread.service_account_from_dict(get_google_credentials_dict())
+    spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
+    try:
+        return spreadsheet.worksheet(tab_name)
+    except gspread.exceptions.WorksheetNotFound:
+        logger.info("📊 自動建立新分頁: %s", tab_name)
+        worksheet = spreadsheet.add_worksheet(title=tab_name, rows=1000, cols=len(headers))
+        worksheet.append_row(headers)
+        return worksheet
 
 
 def append_to_google_sheet(timestamp: str, filename: str, tags: str, file_url: str):
@@ -268,8 +285,12 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
     from skills import get_all_tools
 
     system_prompt = (
-        "你是一個萬能的雲端助理。使用者會請你幫忙尋找以前存過的檔案，或是請你幫忙記下筆記。"
-        "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。"
+        "你是一個萬能的雲端助理。使用者可能會：\n"
+        "1. 請你幫忙尋找以前存過的檔案。\n"
+        "2. 請你幫忙記下筆記或備忘錄。\n"
+        "3. 請你幫忙記帳（花費、消費、支出）。\n"
+        "4. 請你儲存聯絡人資訊或電話號碼。\n"
+        "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
     )
 
@@ -394,6 +415,7 @@ def handle_text_message(event: MessageEvent):
         context = {
             "lookup_file_in_sheets_by_tags": lookup_file_in_sheets_by_tags,
             "save_note_to_sheets": save_note_to_sheets,
+            "get_or_create_sheet_tab": get_or_create_sheet_tab,
         }
         result = run_skill(action, decision.get("args", {}), context)
         logger.info("[%s] Skill '%s' 回傳: %s", user_id, action, result)
@@ -416,6 +438,29 @@ def handle_text_message(event: MessageEvent):
             else:
                 reply_message = TextSendMessage(text="❌ 筆記儲存失敗，請稍後再試。")
 
+        elif action == "add_expense":
+            if result.get("saved"):
+                reply_message = flex_messages.get_backup_receipt_flex(
+                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["time_str"], "#"
+                )
+                save_message(user_id, "assistant", f"已記帳: {result['item']} ${result['amount']}")
+            else:
+                reply_message = TextSendMessage(text="❌ 記帳失敗，請稍後再試。")
+
+        elif action == "save_contact":
+            if result.get("saved"):
+                info_parts = [result.get("name", "")]
+                if result.get("company"):
+                    info_parts.append(result["company"])
+                if result.get("phone"):
+                    info_parts.append(result["phone"])
+                reply_message = flex_messages.get_backup_receipt_flex(
+                    "📇 通訊錄", " | ".join(info_parts), result["time_str"], "#"
+                )
+                save_message(user_id, "assistant", f"已儲存聯絡人: {result['name']}")
+            else:
+                reply_message = TextSendMessage(text="❌ 聯絡人儲存失敗，請稍後再試。")
+
         else:
             # 未來新增的 skill 若沒有特殊 UI，回傳純文字
             reply_message = TextSendMessage(text=str(result))
@@ -424,38 +469,106 @@ def handle_text_message(event: MessageEvent):
     line_bot_api.reply_message(event.reply_token, reply_message)
 
 
-# ── 圖片訊息：Vision 分析 + Drive 備份 + Sheets 索引 ────────────────────────
+# ── 圖片訊息：Vision 分析 + Drive 備份 + Sheets 索引 + 名片偵測 ──────────
+def extract_namecard_info(image_bytes: bytes) -> dict | None:
+    """
+    使用 GPT-4o Vision 偵測並提取名片資訊。
+    若圖片不是名片，回傳 None。
+    """
+    try:
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是名片辨識助理。先判斷圖片是否為名片/商務卡：\n"
+                        "- 如果【是名片】，請回傳純 JSON：{\"is_namecard\": true, \"name\": \"...\", \"company\": \"...\", \"title\": \"...\", \"phone\": \"...\", \"email\": \"...\", \"notes\": \"其他資訊\"}\n"
+                        "- 如果【不是名片】，請回傳：{\"is_namecard\": false}\n"
+                        "只回傳 JSON，不要加任何其他文字。"
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "這是名片嗎？如果是，請提取聯絡資訊："},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "low"}},
+                    ],
+                }
+            ],
+            max_tokens=300,
+            temperature=0,
+        )
+        raw = response.choices[0].message.content.strip()
+        # 清理可能的 markdown code block
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        result = json.loads(raw)
+        if result.get("is_namecard"):
+            return result
+        return None
+    except Exception as e:
+        logger.warning("名片偵測失敗 (non-fatal): %s", e)
+        return None
+
+
 @handler.add(MessageEvent, message=ImageMessage)
 def handle_image_message(event: MessageEvent):
     user_id = event.source.user_id
     msg_id = event.message.id
-    
-    # 時間特徵
+
     now = datetime.now()
     ts_str = now.strftime("%Y%m%d_%H%M%S")
     timestamp_display = now.strftime("%Y/%m/%d %H:%M")
-    
+
     filename = f"IMG_{ts_str}.jpg"
-    
-    # LINE Webhook 一次事件只能調用一次 reply_message
-    # 如果要先回「處理中」，再回「結果」，第二則必須用 push_message
-    # 為避免過於複雜，這裡我們讓用戶等一下，直接給最後一張精美收據
+
     link, raw_bytes = backup_media_to_drive(msg_id, "image/jpeg", filename)
     if not link:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 備份寫入失敗"))
         return
 
-    # 呼叫 GPT-4o Vision 識圖
-    tags = analyze_image_with_vision(raw_bytes) if raw_bytes else "無標籤"
+    # 名片偵測：先看看是不是名片
+    namecard_info = extract_namecard_info(raw_bytes) if raw_bytes else None
 
-    # 寫入 Google Sheets
-    append_to_google_sheet(timestamp_display, filename, tags, link)
+    if namecard_info:
+        # 🎉 是名片！自動存入通訊錄
+        logger.info("📇 偵測到名片: %s", namecard_info.get("name"))
+        tags = f"名片, {namecard_info.get('name', '')}, {namecard_info.get('company', '')}"
 
-    # 傳送歸檔收據 (Flex)
-    receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
+        # 寫入檔案索引
+        append_to_google_sheet(timestamp_display, filename, tags, link)
+
+        # 寫入通訊錄分頁
+        from skills import run_skill
+        context = {"get_or_create_sheet_tab": get_or_create_sheet_tab}
+        namecard_info["card_url"] = link
+        contact_result = run_skill("save_contact", namecard_info, context)
+        logger.info("📇 通訊錄寫入結果: %s", contact_result)
+
+        # 組合回覆：通訊錄資訊
+        info_parts = [namecard_info.get("name", "")]
+        if namecard_info.get("company"):
+            info_parts.append(namecard_info["company"])
+        if namecard_info.get("phone"):
+            info_parts.append(namecard_info["phone"])
+
+        receipt_flex = flex_messages.get_backup_receipt_flex(
+            "📇 名片掃描", " | ".join(info_parts), timestamp_display, link,
+            folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else ""
+        )
+    else:
+        # 普通圖片：走原本的標籤流程
+        tags = analyze_image_with_vision(raw_bytes) if raw_bytes else "無標籤"
+        append_to_google_sheet(timestamp_display, filename, tags, link)
+
+        receipt_flex = flex_messages.get_backup_receipt_flex(
+            filename, tags, timestamp_display, link,
+            folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else ""
+        )
+
     line_bot_api.reply_message(event.reply_token, receipt_flex)
-
-    # 4. (非同步) 若需要可在這發第二段確認訊息，但因為 LINE Webhook 有限制，我們簡化處理。
 
 
 # ── 影片/檔案：只能記檔名與時間，無 Vision 分析 ───────────────────────
