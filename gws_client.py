@@ -268,7 +268,7 @@ def drive_upload(filepath: str, folder_id: str, filename: str, mime_type: str = 
         "drive", "files", "create",
         "--json", json.dumps(metadata),
         "--upload", filepath,
-        "--params", json.dumps({"fields": "id,webViewLink"}),
+        "--params", json.dumps({"fields": "id,webViewLink", "supportsAllDrives": True}),
     )
     if not result or "error" in result:
         logger.error("Drive 上傳失敗: %s", result)
@@ -291,7 +291,7 @@ def drive_set_public(file_id: str) -> bool:
     """
     result = _run_gws(
         "drive", "permissions", "create",
-        "--params", json.dumps({"fileId": file_id}),
+        "--params", json.dumps({"fileId": file_id, "supportsAllDrives": True}),
         "--json", json.dumps({"type": "anyone", "role": "reader"}),
     )
     if not result or "error" in result:
