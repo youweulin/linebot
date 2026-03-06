@@ -60,6 +60,11 @@ def _get_drive_creds_file() -> str:
         oauth_json_str = oauth_json_str.replace("\\n", "\n")
         try:
             parsed_json = json.loads(oauth_json_str, strict=False)
+            
+            # gws CLI 嚴格要求 oauth token 必須包含 type 欄位
+            if "type" not in parsed_json:
+                parsed_json["type"] = "authorized_user"
+                
             temp_file = os.path.join(tempfile.gettempdir(), "gws-user-oauth.json")
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(parsed_json, f, ensure_ascii=False, indent=2)
