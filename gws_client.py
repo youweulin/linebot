@@ -50,14 +50,38 @@ def _get_creds_file() -> str:
     return ""
 
 
-def _run_gws(*args: str, input_data: str | None = None) -> dict | list | None:
+def _get_drive_creds_file() -> str:
+    """如果環境變數有 GOOGLE_DRIVE_OAUTH_JSON，優先解析並回傳此 OAuth Token 憑證檔路徑"""
+    oauth_json_str = os.getenv("GOOGLE_DRIVE_OAUTH_JSON", "").strip()
+    if oauth_json_str and oauth_json_str != "{}" and oauth_json_str != "''":
+        if oauth_json_str.startswith("'") and oauth_json_str.endswith("'"):
+            oauth_json_str = oauth_json_str[1:-1]
+        
+        oauth_json_str = oauth_json_str.replace("\\n", "\n")
+        try:
+            parsed_json = json.loads(oauth_json_str, strict=False)
+            temp_file = os.path.join(tempfile.gettempdir(), "gws-user-oauth.json")
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(parsed_json, f, ensure_ascii=False, indent=2)
+            return temp_file
+        except Exception as e:
+            logger.error("🛑 解析 GOOGLE_DRIVE_OAUTH_JSON 失敗: %s", e)
+    return ""
+
+
+def _run_gws(*args: str, input_data: str | None = None, use_drive_oauth: bool = False) -> dict | list | None:
     """
     執行 gws 指令並回傳解析後的 JSON。
     所有 gws 回傳都是 JSON，直接 parse。
     """
     env = os.environ.copy()
     
-    creds_file = _get_creds_file()
+    creds_file = ""
+    if use_drive_oauth:
+        creds_file = _get_drive_creds_file()
+    
+    if not creds_file:
+        creds_file = _get_creds_file()
     if creds_file:
         env["GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE"] = creds_file
 
@@ -269,6 +293,7 @@ def drive_upload(filepath: str, folder_id: str, filename: str, mime_type: str = 
         "--json", json.dumps(metadata),
         "--upload", filepath,
         "--params", json.dumps({"fields": "id,webViewLink", "supportsAllDrives": True}),
+        use_drive_oauth=True,
     )
     if not result or "error" in result:
         logger.error("Drive 上傳失敗: %s", result)
@@ -293,6 +318,7 @@ def drive_set_public(file_id: str) -> bool:
         "drive", "permissions", "create",
         "--params", json.dumps({"fileId": file_id, "supportsAllDrives": True}),
         "--json", json.dumps({"type": "anyone", "role": "reader"}),
+        use_drive_oauth=True,
     )
     if not result or "error" in result:
         logger.error("Drive 權限設定失敗: %s", result)
