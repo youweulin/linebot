@@ -22,6 +22,5 @@ COPY .  .
 EXPOSE 8080
 
 # ── 啟動指令 ─────────────────────────────────────────────────────────────
-# 1. 將 GOOGLE_CREDENTIALS_JSON 環境變數寫入檔案供 gws CLI 使用
-# 2. 啟動 uvicorn
-CMD ["sh", "-c", "echo \"$GOOGLE_CREDENTIALS_JSON\" > /tmp/sa-key.json && export GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE=/tmp/sa-key.json && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# 啟動 uvicorn
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
