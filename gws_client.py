@@ -14,10 +14,32 @@ import logging
 import os
 import subprocess
 
+import tempfile
+
 logger = logging.getLogger(__name__)
 
-SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
-_creds_file = os.getenv("GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", "")
+def _get_sheet_id() -> str:
+    return os.getenv("GOOGLE_SHEET_ID", "")
+
+def _get_creds_file() -> str:
+    creds_file = os.getenv("GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE", "")
+    if creds_file:
+        return creds_file
+    
+    # 自動從 GOOGLE_CREDENTIALS_JSON 產生憑證檔案
+    creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+    if creds_json_str and creds_json_str != "{}" and creds_json_str != "''":
+        if creds_json_str.startswith("'") and creds_json_str.endswith("'"):
+            creds_json_str = creds_json_str[1:-1]
+        try:
+            json.loads(creds_json_str) # 驗證格式
+            temp_file = os.path.join(tempfile.gettempdir(), "gws-sa-key.json")
+            with open(temp_file, "w", encoding="utf-8") as f:
+                f.write(creds_json_str)
+            return temp_file
+        except Exception as e:
+            logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗: %s", e)
+    return ""
 
 
 def _run_gws(*args: str, input_data: str | None = None) -> dict | list | None:
@@ -26,8 +48,10 @@ def _run_gws(*args: str, input_data: str | None = None) -> dict | list | None:
     所有 gws 回傳都是 JSON，直接 parse。
     """
     env = os.environ.copy()
-    if _creds_file:
-        env["GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE"] = _creds_file
+    
+    creds_file = _get_creds_file()
+    if creds_file:
+        env["GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE"] = creds_file
 
     cmd = ["gws", *args]
     logger.debug("🔧 gws 指令: %s", " ".join(cmd))
@@ -78,7 +102,7 @@ def sheets_get_values(range_str: str, sheet_id: str = "") -> list[list[str]]:
     讀取 Sheets 指定範圍的值。
     回傳二維陣列 [[row1_col1, row1_col2, ...], [row2_col1, ...], ...]
     """
-    sid = sheet_id or SHEET_ID
+    sid = sheet_id or _get_sheet_id()
     result = _run_gws(
         "sheets", "spreadsheets", "values", "get",
         "--params", json.dumps({
@@ -97,7 +121,7 @@ def sheets_append_row(tab_name: str, values: list, sheet_id: str = "") -> bool:
     追加一行到指定分頁。
     values: [col1, col2, col3, ...]
     """
-    sid = sheet_id or SHEET_ID
+    sid = sheet_id or _get_sheet_id()
     # 將所有值轉成字串
     str_values = [str(v) for v in values]
     result = _run_gws(
@@ -122,7 +146,7 @@ def sheets_get_all_values(tab_name: str, sheet_id: str = "") -> list[list[str]]:
     """
     讀取指定分頁的所有值（A:Z 全範圍）。
     """
-    sid = sheet_id or SHEET_ID
+    sid = sheet_id or _get_sheet_id()
     return sheets_get_values(f"{tab_name}!A:Z", sid)
 
 
@@ -130,7 +154,7 @@ def sheets_get_tab_names(sheet_id: str = "") -> list[str]:
     """
     列出試算表的所有分頁名稱。
     """
-    sid = sheet_id or SHEET_ID
+    sid = sheet_id or _get_sheet_id()
     result = _run_gws(
         "sheets", "spreadsheets", "get",
         "--params", json.dumps({
@@ -149,7 +173,7 @@ def sheets_create_tab(tab_name: str, sheet_id: str = "") -> bool:
     """
     建立新的分頁。
     """
-    sid = sheet_id or SHEET_ID
+    sid = sheet_id or _get_sheet_id()
     result = _run_gws(
         "sheets", "spreadsheets", "batchUpdate",
         "--params", json.dumps({"spreadsheetId": sid}),
@@ -174,7 +198,7 @@ def get_or_create_tab(tab_name: str, headers: list[str] = [], sheet_id: str = ""
     如果分頁不存在，會自動建立並寫入標題列。
     回傳 tab_name（成功）或 None（失敗）。
     """
-    sid = sheet_id or SHEET_ID
+    sid = sheet_id or _get_sheet_id()
     existing_tabs = sheets_get_tab_names(sid)
 
     if tab_name not in existing_tabs:
@@ -192,7 +216,7 @@ def get_recent_records(tab_name: str, headers: list[str] = [], limit: int = 5, s
     從指定分頁取得最新 N 筆資料（反排序）並封裝成字典的 List。
     如果分頁不存在，會自動建立空分頁然後回傳空 List。
     """
-    sid = sheet_id or SHEET_ID
+    sid = sheet_id or _get_sheet_id()
 
     # 確保分頁存在
     tab = get_or_create_tab(tab_name, headers, sid)

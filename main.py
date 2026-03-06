@@ -22,6 +22,8 @@ from contextlib import contextmanager
 from datetime import datetime
 
 from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from langfuse import Langfuse
@@ -38,7 +40,6 @@ import flex_messages
 # ══════════════════════════════════════════════════════════════════════════════
 # 環境變數讀取
 # ══════════════════════════════════════════════════════════════════════════════
-load_dotenv()
 
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
