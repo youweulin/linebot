@@ -31,11 +31,15 @@ def _get_creds_file() -> str:
     if creds_json_str and creds_json_str != "{}" and creds_json_str != "''":
         if creds_json_str.startswith("'") and creds_json_str.endswith("'"):
             creds_json_str = creds_json_str[1:-1]
+        
+        # 處理可能的跳脫字元 (Zeabur 環境變數裡的 \n 可能變成字面上的 \\n)
+        creds_json_str = creds_json_str.replace("\\n", "\n")
+
         try:
-            json.loads(creds_json_str) # 驗證格式
+            parsed_json = json.loads(creds_json_str) # 驗證格式並確保是乾淨的 dict
             temp_file = os.path.join(tempfile.gettempdir(), "gws-sa-key.json")
             with open(temp_file, "w", encoding="utf-8") as f:
-                f.write(creds_json_str)
+                json.dump(parsed_json, f, ensure_ascii=False, indent=2)
             return temp_file
         except Exception as e:
             logger.error("🛑 解析 GOOGLE_CREDENTIALS_JSON 失敗: %s", e)

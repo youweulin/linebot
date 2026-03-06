@@ -1,5 +1,7 @@
 """Test gws_client.py locally"""
 import json
+from dotenv import load_dotenv
+load_dotenv()
 import gws_client
 
 # Test 1: 列出所有分頁
