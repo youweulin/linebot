@@ -443,8 +443,8 @@ def get_note_carousel(records: list[dict], sheet_url: str) -> FlexSendMessage:
     })
     return FlexSendMessage(alt_text="📝 近期筆記", contents={"type": "carousel", "contents": bubbles})
 
-def get_text_flex(text: str) -> FlexSendMessage:
-    """用 Flex Message 包裝純文字，避免 TextSendMessage SDK Bug"""
+def get_text_flex(text: str, buttons: list[dict] = None) -> FlexSendMessage:
+    """用 Flex Message 包裝純文字，避免 TextSendMessage SDK Bug，並支援附加按鈕"""
     bubble = {
         "type": "bubble",
         "body": {
@@ -460,4 +460,13 @@ def get_text_flex(text: str) -> FlexSendMessage:
             ]
         }
     }
+    
+    if buttons:
+        bubble["footer"] = {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": buttons
+        }
+    
     return FlexSendMessage(alt_text=text[:40] if len(text) > 40 else text, contents=bubble)

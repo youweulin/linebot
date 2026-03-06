@@ -349,8 +349,16 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Flex
             short_content = (content[:30] + "...") if len(content) > 30 else content
             lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
             
-    lines.append(f"\n🔗 開啟完整試算表：\n{base_url}")
-    return flex_messages.get_text_flex("\n".join(lines))
+    buttons = [{
+        "type": "button",
+        "style": "primary",
+        "action": {
+            "type": "uri",
+            "label": "🔗 開啟完整試算表",
+            "uri": base_url
+        }
+    }]
+    return flex_messages.get_text_flex("\n".join(lines), buttons=buttons)
 
 # ── 文字訊息：Skills 智能路由 ─────────────────────────────────────────────
 @handler.add(MessageEvent, message=TextMessage)
