@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import subprocess
-
+import re
 import tempfile
 
 logger = logging.getLogger(__name__)
@@ -34,9 +34,13 @@ def _get_creds_file() -> str:
         
         # 處理可能的跳脫字元 (Zeabur 環境變數裡的 \n 可能變成字面上的 \\n)
         creds_json_str = creds_json_str.replace("\\n", "\n")
-
+        
+        # 移除可能導致 json.loads 當掉的隱藏控制字元 (保留換行等合法空白)
+        # JSON string parser doesn't like literal newlines or tabs inside double quotes, 
+        # so we use strictly loadable json format if literal control characters snuck in.
+        # Strict mode: json.loads strict=False allows control chars inside strings
         try:
-            parsed_json = json.loads(creds_json_str) # 驗證格式並確保是乾淨的 dict
+            parsed_json = json.loads(creds_json_str, strict=False) # 驗證格式並確保是乾淨的 dict
             temp_file = os.path.join(tempfile.gettempdir(), "gws-sa-key.json")
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(parsed_json, f, ensure_ascii=False, indent=2)
