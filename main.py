@@ -377,8 +377,24 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword
     lines = [f"🔍 最近的 {display_cmd} 紀錄：\n"]
     
     income_categories = ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]
-    total_income = 0.0
-    total_expense = 0.0
+    
+    # 取得當前年月，用於本月/年度統計
+    import re
+    now = datetime.now()
+    current_year = now.strftime("%Y")        # e.g. "2026"
+    current_month = now.strftime("%Y/%m")    # e.g. "2026/03"
+    
+    # 累計器：全部 / 本月 / 年度
+    month_income = 0.0;  month_expense = 0.0
+    year_income  = 0.0;  year_expense  = 0.0
+    
+    def _parse_record_date(r):
+        """從紀錄取得日期字串 (優先用項目時間)"""
+        d = r.get("項目時間") or r.get("時間", "")
+        return str(d)[:10] if d else ""
+    
+    # 用來收集要顯示的紀錄行（本月的）
+    display_lines = []
     
     for r in records:
         if cmd == "記帳":
@@ -391,59 +407,80 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword
             if is_expense_only and category in income_categories:
                 continue
 
-            import re
             clean_amount = re.sub(r'[^\d.-]', '', amount_str)
+            val = 0.0
             try:
                 if clean_amount:
                     val = float(clean_amount)
-                    if category in income_categories:
-                        total_income += val
-                    else:
-                        total_expense += val
             except Exception:
                 pass
             
-            # 顯示日期優先序：項目時間 (實際交易日) > 時間 (紀錄時間)
-            display_date = r.get("項目時間") or r.get("時間", "")
-            if display_date:
-                display_date = str(display_date)[:10]
+            display_date = _parse_record_date(r)
+            is_income = category in income_categories
+            
+            # 依日期歸入本月 / 年度
+            if display_date.startswith(current_year):
+                if is_income:
+                    year_income += val
+                else:
+                    year_expense += val
+                if display_date.startswith(current_month):
+                    if is_income:
+                        month_income += val
+                    else:
+                        month_expense += val
 
-            lines.append(f"💰 {r.get('項目', '未知')} : ${r.get('金額', '0')} ({display_date})")
+            # 只顯示本月的明細
+            if display_date.startswith(current_month):
+                display_lines.append(f"💰 {r.get('項目', '未知')} : ${r.get('金額', '0')} ({display_date})")
         elif cmd == "待辦":
             status = str(r.get("狀態(未完成/已完成)", "未完成"))
             mark = "✅" if "已完成" in status else "❌"
-            lines.append(f"{mark} {r.get('待辦事項', '')} (期限: {r.get('預計完成日', '無')})")
+            display_lines.append(f"{mark} {r.get('待辦事項', '')} (期限: {r.get('預計完成日', '無')})")
         elif cmd in ["排程", "行程", "行事曆"]:
-            lines.append(f"📅 {r.get('事件名稱', '')} : {r.get('事件日期', '')} {r.get('事件時間', '')}")
+            display_lines.append(f"📅 {r.get('事件名稱', '')} : {r.get('事件日期', '')} {r.get('事件時間', '')}")
         elif cmd in ["名片", "通訊錄", "聯絡人"]:
-            lines.append(f"📇 {r.get('姓名', '未知')} - {r.get('公司', '')} {r.get('職稱', '')}")
+            display_lines.append(f"📇 {r.get('姓名', '未知')} - {r.get('公司', '')} {r.get('職稱', '')}")
             if r.get("電話"):
-                lines.append(f"   📞 {r.get('電話')}")
+                display_lines.append(f"   📞 {r.get('電話')}")
             if r.get("Email"):
-                lines.append(f"   📩 {r.get('Email')}")
+                display_lines.append(f"   📩 {r.get('Email')}")
         elif cmd in ["筆記", "備忘錄"]:
             content = str(r.get("筆記內容", ""))
             short_content = (content[:30] + "...") if len(content) > 30 else content
-            lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
+            display_lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
         elif cmd in ["交易", "日記"]:
             psyc = str(r.get("心理狀態", ""))
             pros = str(r.get("優點", ""))
             cons = str(r.get("缺點", ""))
-            lines.append(f"📈 交易日記 ({str(r.get('時間', ''))[:10]})\n🧠 心態: {psyc}\n✅ 優點: {pros}\n❌ 缺點: {cons}\n")
+            display_lines.append(f"📈 交易日記 ({str(r.get('時間', ''))[:10]})\n🧠 心態: {psyc}\n✅ 優點: {pros}\n❌ 缺點: {cons}\n")
+    
+    lines.extend(display_lines)
             
     if cmd == "記帳":
         def _fmt(v):
             return int(v) if v == int(v) else v
         
+        month_label = f"{now.month}月"
+        year_label = f"{current_year}年"
+        
         if is_payout_only:
-            lines.append(f"\n📊 總收入（出金）：${_fmt(total_income):,}")
+            lines.append(f"\n📅 {month_label}收入：${_fmt(month_income):,}")
+            lines.append(f"🗓️ {year_label}收入：${_fmt(year_income):,}")
         elif is_expense_only:
-            lines.append(f"\n📊 總支出：${_fmt(total_expense):,}")
+            lines.append(f"\n📅 {month_label}支出：${_fmt(month_expense):,}")
+            lines.append(f"🗓️ {year_label}支出：${_fmt(year_expense):,}")
         else:
-            net = total_income - total_expense
-            lines.append(f"\n💰 總收入：${_fmt(total_income):,}")
-            lines.append(f"💸 總支出：${_fmt(total_expense):,}")
-            lines.append(f"📊 淨利潤：${_fmt(net):,}")
+            month_net = month_income - month_expense
+            year_net = year_income - year_expense
+            lines.append(f"\n── {month_label}統計 ──")
+            lines.append(f"💰 收入：${_fmt(month_income):,}")
+            lines.append(f"💸 支出：${_fmt(month_expense):,}")
+            lines.append(f"📊 淨利潤：${_fmt(month_net):,}")
+            lines.append(f"\n── {year_label}統計 ──")
+            lines.append(f"💰 收入：${_fmt(year_income):,}")
+            lines.append(f"💸 支出：${_fmt(year_expense):,}")
+            lines.append(f"📊 淨利潤：${_fmt(year_net):,}")
             
     buttons = [{
         "type": "button",
