@@ -11,14 +11,14 @@ TOOL_DEF = {
     "type": "function",
     "function": {
         "name": "query_records",
-        "description": "當使用者想查詢、列出或檢視他儲存的「記帳/花費/出金/淨利潤」、「待辦事項/任務」、「行程/排程」、「名片/聯絡人」或「筆記/備忘錄」時呼叫此功能。例如：「列出我近期的記帳」、「算一下淨利潤」、「看最近的出金紀錄」、「查一下王老闆的電話」。",
+        "description": "當使用者想查詢、列出或檢視他儲存的「記帳/花費/出金/淨利潤」、「待辦事項/任務」、「行程/排程」、「名片/聯絡人」、「筆記/備忘錄」或「交易日記/打單心得」時呼叫此功能。例如：「列出我近期的記帳」、「看一下我的待辦清單」、「查一下王老闆的電話」、「看昨天交易紀錄」。",
         "parameters": {
             "type": "object",
             "properties": {
                 "category": {
                     "type": "string",
-                    "enum": ["expense", "task", "event", "contact", "note"],
-                    "description": "要查詢的資料類別。expense(記帳/花費/出金/收入/淨利潤), task(待辦/任務), event(排程/行程), contact(名片/通訊錄/人脈), note(筆記/備忘錄)。"
+                    "enum": ["expense", "task", "event", "contact", "note", "journal"],
+                    "description": "要查詢的資料類別。expense(記帳/花費/出金/收入/淨利潤), task(待辦/任務), event(排程/行程), contact(名片/通訊錄/人脈), note(筆記/備忘錄), journal(交易日記/打單紀錄)。"
                 },
                 "keyword": {
                     "type": "string",

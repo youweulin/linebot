@@ -367,6 +367,11 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Flex
             content = str(r.get("筆記內容", ""))
             short_content = (content[:30] + "...") if len(content) > 30 else content
             lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
+        elif cmd in ["交易", "日記"]:
+            psyc = str(r.get("心理狀態", ""))
+            pros = str(r.get("優點", ""))
+            cons = str(r.get("缺點", ""))
+            lines.append(f"📈 交易日記 ({str(r.get('時間', ''))[:10]})\n🧠 心態: {psyc}\n✅ 優點: {pros}\n❌ 缺點: {cons}\n")
             
     if cmd == "記帳":
         if net_profit.is_integer():
@@ -408,6 +413,8 @@ def handle_text_message(event: MessageEvent):
             records = get_recent_records_from_sheet("📇 通訊錄", limit=5)
         elif cmd in ["筆記", "備忘錄"]:
             records = get_recent_records_from_sheet("📝 筆記本", limit=5)
+        elif cmd in ["交易", "日記"]:
+            records = get_recent_records_from_sheet("📈 交易日記", limit=3)
             
         if records is not None:
             reply_message = format_records_as_text(cmd, records, base_url)
@@ -507,6 +514,16 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", f"已排程: {result['event_name']}")
             else:
                 reply_message = flex_messages.get_text_flex("❌ 排程儲存失敗，請稍後再試。")
+
+        elif action == "add_journal":
+            if result.get("saved"):
+                content = f"🧠心態: {result['psychology']}\n✅優點: {result['pros']}\n❌缺點: {result['cons']}"
+                reply_message = flex_messages.get_backup_receipt_flex(
+                    f"📈 交易日記", content, result["time_str"], "#", footer_text="💪 每日檢討是通往獲利的最佳捷徑！持續保持紀律！"
+                )
+                save_message(user_id, "assistant", f"已記錄交易日記 ({result['time_str']})")
+            else:
+                reply_message = flex_messages.get_text_flex("❌ 日記儲存失敗，請稍後再試。")
 
         elif action == "add_task":
             if result.get("saved"):
