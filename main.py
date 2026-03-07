@@ -361,8 +361,8 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword
             except Exception:
                 pass
             
-            # 顯示日期優先序：實際交易日期 > 紀錄時間
-            display_date = r.get("實際交易日期") or r.get("紀錄時間") or r.get("時間", "")
+            # 顯示日期優先序：項目時間 (實際交易日) > 時間 (紀錄時間)
+            display_date = r.get("項目時間") or r.get("時間", "")
             if display_date:
                 display_date = str(display_date)[:10]
 
@@ -424,7 +424,8 @@ def handle_text_message(event: MessageEvent):
         records = None
         
         if cmd == "記帳":
-            records = get_recent_records_from_sheet("💰 記帳本", limit=5)
+            headers = ["時間", "項目時間", "項目", "金額", "", "類別"]
+            records = get_recent_records_from_sheet("💰 記帳本", headers=headers, limit=5)
         elif cmd == "待辦":
             records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
         elif cmd in ["排程", "行程", "行事曆"]:
@@ -564,7 +565,8 @@ def handle_text_message(event: MessageEvent):
                 
                 records = None
                 if cmd == "記帳":
-                    records = get_recent_records_from_sheet("💰 記帳本", limit=10)
+                    headers = ["時間", "項目時間", "項目", "金額", "", "類別"]
+                    records = get_recent_records_from_sheet("💰 記帳本", headers=headers, limit=10)
                 elif cmd == "待辦":
                     records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
                 elif cmd in ["排程", "行程", "行事曆"]:

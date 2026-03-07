@@ -187,6 +187,22 @@ def sheets_get_all_values(tab_name: str, sheet_id: str = "") -> list[list[str]]:
     return sheets_get_values(f"{tab_name}!A:Z", sid)
 
 
+def sheets_get_all_records(tab_name: str, sheet_id: str = "") -> list[dict]:
+    """
+    讀取指定分頁的所有紀錄，並轉為 dict 串列。
+    """
+    values = sheets_get_all_values(tab_name, sheet_id)
+    if not values or len(values) < 1:
+        return []
+    
+    headers = values[0]
+    records = []
+    for row in values[1:]:
+        # 補齊長度
+        row_data = row + [""] * (len(headers) - len(row))
+        records.append(dict(zip(headers, row_data)))
+    return records
+
 def sheets_get_tab_names(sheet_id: str = "") -> list[str]:
     """
     列出試算表的所有分頁名稱。

@@ -36,7 +36,7 @@ TOOL_DEF = {
 }
 
 TAB_NAME = "💰 記帳本"
-HEADERS = ["紀錄時間", "實際交易日期", "項目", "金額", "類別"]
+HEADERS = ["時間", "項目時間", "項目", "金額", "", "類別"]
 
 
 def execute(args: dict, context: dict) -> dict:
@@ -66,7 +66,7 @@ def execute(args: dict, context: dict) -> dict:
             transaction_date = transaction_date.replace("-", "/")
 
         gws_client.get_or_create_tab(TAB_NAME, HEADERS)
-        ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, category])
+        ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, "", category])
         
         # 取得該交易日期的累積花費與 Propfirm 特定花費
         import re
@@ -75,7 +75,7 @@ def execute(args: dict, context: dict) -> dict:
         propfirm_daily_total = 0.0
         
         for r in records:
-            r_date = str(r.get("實際交易日期", ""))
+            r_date = str(r.get("項目時間", ""))
             r_item = str(r.get("項目", "")).lower()
             
             # 只計算該交易日期的紀錄
