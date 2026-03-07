@@ -426,7 +426,7 @@ def handle_text_message(event: MessageEvent):
         records = None
         
         if cmd == "記帳":
-            headers = ["時間", "項目時間", "項目", "金額", "", "類別"]
+            headers = ["時間", "項目時間", "項目", "金額", "類別"]
             records = get_recent_records_from_sheet("💰 記帳本", headers=headers, limit=5)
         elif cmd == "待辦":
             records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
@@ -567,7 +567,7 @@ def handle_text_message(event: MessageEvent):
                 
                 records = None
                 if cmd == "記帳":
-                    headers = ["時間", "項目時間", "項目", "金額", "", "類別"]
+                    headers = ["時間", "項目時間", "項目", "金額", "類別"]
                     records = get_recent_records_from_sheet("💰 記帳本", headers=headers, limit=10)
                 elif cmd == "待辦":
                     records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
