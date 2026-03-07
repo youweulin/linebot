@@ -35,6 +35,11 @@ TOOL_DEF = {
     }
 }
 
+import gws_client
+import re
+from datetime import datetime
+import pytz
+
 TAB_NAME = "💰 記帳本"
 HEADERS = ["時間", "項目時間", "項目", "金額", "", "類別"]
 
@@ -48,9 +53,6 @@ def execute(args: dict, context: dict) -> dict:
     category = args.get("category", "其他收入")
 
     try:
-        import gws_client
-        from datetime import datetime
-        import pytz
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
         
@@ -69,7 +71,6 @@ def execute(args: dict, context: dict) -> dict:
         ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, "", category])
         
         # 計算該交易日期所屬月份與年份的出金總計
-        import re
         # 解析交易日期物件以取得年/月
         try:
             trans_dt = datetime.strptime(transaction_date, "%Y/%m/%d")

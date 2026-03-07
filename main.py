@@ -211,7 +211,9 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
     """
     from skills import get_all_tools
 
+    today = datetime.now().strftime("%Y/%m/%d")
     system_prompt = (
+        f"今天的日期是 {today}。\n"
         "你是一個萬能的雲端助理。使用者可能會：\n"
         "1. 請你幫忙尋找以前存過的檔案。\n"
         "2. 請你幫忙記下筆記或備忘錄。\n"

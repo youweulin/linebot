@@ -35,6 +35,11 @@ TOOL_DEF = {
     }
 }
 
+import gws_client
+import re
+from datetime import datetime
+import pytz
+
 TAB_NAME = "💰 記帳本"
 HEADERS = ["時間", "項目時間", "項目", "金額", "", "類別"]
 
@@ -48,9 +53,6 @@ def execute(args: dict, context: dict) -> dict:
     category = args.get("category", "其他")
     
     try:
-        import gws_client
-        from datetime import datetime
-        import pytz
         tw_tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tw_tz)
         
@@ -69,7 +71,6 @@ def execute(args: dict, context: dict) -> dict:
         ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, "", category])
         
         # 取得該交易日期的累積花費與 Propfirm 特定花費
-        import re
         records = gws_client.sheets_get_all_records(TAB_NAME)
         
         propfirm_daily_total = 0.0
