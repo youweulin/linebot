@@ -330,17 +330,23 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Flex
         return flex_messages.get_text_flex(f"目前沒有 {cmd} 紀錄喔！")
     
     lines = [f"🔍 最近的 {cmd} 紀錄：\n"]
-    total_expense = 0.0
+    net_profit = 0.0
 
     for r in records:
         if cmd == "記帳":
-            # 嘗試計算總計金額
+            # 嘗試計算淨利潤 (收入為正，支出為負)
             amount_str = str(r.get('金額', '0'))
+            category = str(r.get('類別', ''))
+            
             import re
             clean_amount = re.sub(r'[^\d.-]', '', amount_str)
             try:
                 if clean_amount:
-                    total_expense += float(clean_amount)
+                    val = float(clean_amount)
+                    if category in ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]:
+                        net_profit += val
+                    else:
+                        net_profit -= val
             except Exception:
                 pass
             
@@ -362,10 +368,10 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Flex
             short_content = (content[:30] + "...") if len(content) > 30 else content
             lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
             
-    if cmd == "記帳" and total_expense > 0:
-        if total_expense.is_integer():
-            total_expense = int(total_expense)
-        lines.append(f"\n📊 總計金額：${total_expense:,}")
+    if cmd == "記帳":
+        if net_profit.is_integer():
+            net_profit = int(net_profit)
+        lines.append(f"\n📊 淨利潤 (Net Profit)：${net_profit:,}")
             
     buttons = [{
         "type": "button",
