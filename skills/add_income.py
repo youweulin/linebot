@@ -46,15 +46,47 @@ def execute(args: dict, context: dict) -> dict:
     try:
         import gws_client
         from datetime import datetime
-        time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+        import pytz
+        tw_tz = pytz.timezone('Asia/Taipei')
+        time_str = datetime.now(tw_tz).strftime("%Y/%m/%d %H:%M")
         gws_client.get_or_create_tab(TAB_NAME, HEADERS)
         ok = gws_client.sheets_append_row(TAB_NAME, [time_str, item, amount, category])
+        
+        # 計算本月與全年的出金總計
+        import re
+        now = datetime.now(tw_tz)
+        current_month = now.strftime("%Y/%m")
+        current_year = now.strftime("%Y")
+        
+        records = gws_client.sheets_get_all_records(TAB_NAME)
+        month_total = 0.0
+        year_total = 0.0
+        
+        for r in records:
+            r_time = str(r.get("時間", ""))
+            r_cat = str(r.get("類別", ""))
+            
+            # 只計算類別為「出金」的項目
+            if "出金" in r_cat:
+                amount_str = str(r.get('金額', '0'))
+                clean_amount = re.sub(r'[^\d.-]', '', amount_str)
+                try:
+                    val = float(clean_amount) if clean_amount else 0.0
+                    if current_year in r_time:
+                        year_total += val
+                        if current_month in r_time:
+                            month_total += val
+                except Exception:
+                    pass
+
         return {
             "saved": ok,
             "time_str": time_str,
             "item": item,
             "amount": amount,
-            "category": category
+            "category": category,
+            "month_total": month_total,
+            "year_total": year_total
         }
     except Exception as e:
         return {"saved": False, "item": item, "amount": amount, "category": category, "error": str(e)}

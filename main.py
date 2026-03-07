@@ -495,7 +495,9 @@ def handle_text_message(event: MessageEvent):
             if result.get("saved"):
                 footer_text = "💰 哇！又有收入進帳了，您的資產正在穩定成長中！"
                 if result.get("category") == "出金":
-                    footer_text = "🎉 太神啦！恭喜 Propfirm 成功出金！所有的努力和紀율都值得了，繼續保持！🚀"
+                    month_total = result.get("month_total", 0)
+                    year_total = result.get("year_total", 0)
+                    footer_text = f"🎉 太神啦！恭喜 Propfirm 成功出金！所有的努力和紀律都值得了，繼續保持！🚀\n\n📅 本月出金：${month_total:,}\n🗓️ 全年累計：${year_total:,}"
                 reply_message = flex_messages.get_backup_receipt_flex(
                     f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["time_str"], "#", footer_text=footer_text
                 )
