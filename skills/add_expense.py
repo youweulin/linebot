@@ -24,6 +24,10 @@ TOOL_DEF = {
                     "type": "string",
                     "description": "消費類別，從以下選擇最接近的一個：餐飲、交通、娛樂、購物、生活、工作、醫療、教育、其他",
                     "enum": ["餐飲", "交通", "娛樂", "購物", "生活", "工作", "醫療", "教育", "其他"]
+                },
+                "transaction_date": {
+                    "type": "string",
+                    "description": "（選填）實際消費日期，格式為 YYYY/MM/DD。如果使用者有特別提到日期（如：昨天、3/5），請轉換為具體日期。若無則留空。"
                 }
             },
             "required": ["item", "amount", "category"]
@@ -32,7 +36,7 @@ TOOL_DEF = {
 }
 
 TAB_NAME = "💰 記帳本"
-HEADERS = ["時間", "項目", "金額", "類別"]
+HEADERS = ["紀錄時間", "實際交易日期", "項目", "金額", "類別"]
 
 
 def execute(args: dict, context: dict) -> dict:
@@ -42,27 +46,40 @@ def execute(args: dict, context: dict) -> dict:
     item = args.get("item", "")
     amount = args.get("amount", 0)
     category = args.get("category", "其他")
-
+    
     try:
         import gws_client
         from datetime import datetime
-        time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
-        gws_client.get_or_create_tab(TAB_NAME, HEADERS)
-        ok = gws_client.sheets_append_row(TAB_NAME, [time_str, item, amount, category])
+        import pytz
+        tw_tz = pytz.timezone('Asia/Taipei')
+        now = datetime.now(tw_tz)
         
-        # 取得今日累積花費與 Propfirm 特定花費
+        # 紀錄時間 (System Time)
+        creation_time = now.strftime("%Y/%m/%d %H:%M")
+        
+        # 實際交易日期 (預設今天)
+        transaction_date = args.get("transaction_date", "")
+        if not transaction_date:
+            transaction_date = now.strftime("%Y/%m/%d")
+        else:
+            # 統一格式 YYYY/MM/DD
+            transaction_date = transaction_date.replace("-", "/")
+
+        gws_client.get_or_create_tab(TAB_NAME, HEADERS)
+        ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, category])
+        
+        # 取得該交易日期的累積花費與 Propfirm 特定花費
         import re
-        today_str = datetime.now().strftime("%Y/%m/%d")
         records = gws_client.sheets_get_all_records(TAB_NAME)
         
         propfirm_daily_total = 0.0
         
         for r in records:
-            r_time = str(r.get("時間", ""))
+            r_date = str(r.get("實際交易日期", ""))
             r_item = str(r.get("項目", "")).lower()
             
-            # 只計算今天的紀錄
-            if today_str in r_time:
+            # 只計算該交易日期的紀錄
+            if transaction_date in r_date:
                 # 嘗試清理數字
                 amount_str = str(r.get('金額', '0'))
                 clean_amount = re.sub(r'[^\d.-]', '', amount_str)
@@ -78,7 +95,8 @@ def execute(args: dict, context: dict) -> dict:
 
         return {
             "saved": ok,
-            "time_str": time_str,
+            "time_str": creation_time,
+            "transaction_date": transaction_date,
             "item": item,
             "amount": amount,
             "category": category,

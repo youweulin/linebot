@@ -361,7 +361,12 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword
             except Exception:
                 pass
             
-            lines.append(f"💰 {r.get('項目', '未知')} : ${r.get('金額', '0')} ({str(r.get('紀錄時間', ''))[:10]})")
+            # 顯示日期優先序：實際交易日期 > 紀錄時間
+            display_date = r.get("實際交易日期") or r.get("紀錄時間") or r.get("時間", "")
+            if display_date:
+                display_date = str(display_date)[:10]
+
+            lines.append(f"💰 {r.get('項目', '未知')} : ${r.get('金額', '0')} ({display_date})")
         elif cmd == "待辦":
             status = str(r.get("狀態(未完成/已完成)", "未完成"))
             mark = "✅" if "已完成" in status else "❌"
@@ -500,9 +505,9 @@ def handle_text_message(event: MessageEvent):
                     footer_text = "👀 提醒：這筆日常花費有點高喔！請注意控制預算！"
                     
                 reply_message = flex_messages.get_backup_receipt_flex(
-                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["time_str"], "#", footer_text=footer_text
+                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["transaction_date"], "#", footer_text=footer_text
                 )
-                save_message(user_id, "assistant", f"已記帳: {result['item']} ${result['amount']}")
+                save_message(user_id, "assistant", f"已記帳: {result['item']} ${result['amount']} (日期: {result['transaction_date']})")
             else:
                 reply_message = flex_messages.get_text_flex("❌ 記帳失敗，請稍後再試。")
 
@@ -514,9 +519,9 @@ def handle_text_message(event: MessageEvent):
                     year_total = result.get("year_total", 0)
                     footer_text = f"🎉 太神啦！恭喜 Propfirm 成功出金！所有的努力和紀律都值得了，繼續保持！🚀\n\n📅 本月出金：${month_total:,}\n🗓️ 全年累計：${year_total:,}"
                 reply_message = flex_messages.get_backup_receipt_flex(
-                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["time_str"], "#", footer_text=footer_text
+                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["transaction_date"], "#", footer_text=footer_text
                 )
-                save_message(user_id, "assistant", f"已記錄收入: {result['item']} ${result['amount']}")
+                save_message(user_id, "assistant", f"已記錄收入: {result['item']} ${result['amount']} (日期: {result['transaction_date']})")
             else:
                 reply_message = flex_messages.get_text_flex("❌ 收入記錄失敗，請稍後再試。")
 

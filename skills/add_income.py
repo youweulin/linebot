@@ -24,6 +24,10 @@ TOOL_DEF = {
                     "type": "string",
                     "description": "收入類別，針對 Propfirm 出金務必選擇「出金」，其他可選「薪水」、「投資」、「兼職」、「其他收入」等",
                     "enum": ["出金", "薪水", "投資", "兼職", "其他收入"]
+                },
+                "transaction_date": {
+                    "type": "string",
+                    "description": "（選填）實際收入日期，格式為 YYYY/MM/DD。如果使用者有特別提到日期（如：昨天、3/5），請轉換為具體日期。若無則留空。"
                 }
             },
             "required": ["item", "amount", "category"]
@@ -32,7 +36,7 @@ TOOL_DEF = {
 }
 
 TAB_NAME = "💰 記帳本"
-HEADERS = ["時間", "項目", "金額", "類別"]
+HEADERS = ["紀錄時間", "實際交易日期", "項目", "金額", "類別"]
 
 
 def execute(args: dict, context: dict) -> dict:
@@ -48,22 +52,39 @@ def execute(args: dict, context: dict) -> dict:
         from datetime import datetime
         import pytz
         tw_tz = pytz.timezone('Asia/Taipei')
-        time_str = datetime.now(tw_tz).strftime("%Y/%m/%d %H:%M")
-        gws_client.get_or_create_tab(TAB_NAME, HEADERS)
-        ok = gws_client.sheets_append_row(TAB_NAME, [time_str, item, amount, category])
-        
-        # 計算本月與全年的出金總計
-        import re
         now = datetime.now(tw_tz)
-        current_month = now.strftime("%Y/%m")
-        current_year = now.strftime("%Y")
+        
+        # 紀錄時間 (System Time)
+        creation_time = now.strftime("%Y/%m/%d %H:%M")
+        
+        # 實際交易日期 (預設今天)
+        transaction_date = args.get("transaction_date", "")
+        if not transaction_date:
+            transaction_date = now.strftime("%Y/%m/%d")
+        else:
+            # 統一格式 YYYY/MM/DD
+            transaction_date = transaction_date.replace("-", "/")
+
+        gws_client.get_or_create_tab(TAB_NAME, HEADERS)
+        ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, category])
+        
+        # 計算該交易日期所屬月份與年份的出金總計
+        import re
+        # 解析交易日期物件以取得年/月
+        try:
+            trans_dt = datetime.strptime(transaction_date, "%Y/%m/%d")
+        except:
+            trans_dt = now # fallback
+            
+        target_month = trans_dt.strftime("%Y/%m")
+        target_year = trans_dt.strftime("%Y")
         
         records = gws_client.sheets_get_all_records(TAB_NAME)
         month_total = 0.0
         year_total = 0.0
         
         for r in records:
-            r_time = str(r.get("時間", ""))
+            r_date = str(r.get("實際交易日期", ""))
             r_cat = str(r.get("類別", ""))
             
             # 只計算類別為「出金」的項目
@@ -72,16 +93,17 @@ def execute(args: dict, context: dict) -> dict:
                 clean_amount = re.sub(r'[^\d.-]', '', amount_str)
                 try:
                     val = float(clean_amount) if clean_amount else 0.0
-                    if current_year in r_time:
+                    if target_year in r_date:
                         year_total += val
-                        if current_month in r_time:
+                        if target_month in r_date:
                             month_total += val
                 except Exception:
                     pass
 
         return {
             "saved": ok,
-            "time_str": time_str,
+            "time_str": creation_time,
+            "transaction_date": transaction_date,
             "item": item,
             "amount": amount,
             "category": category,
