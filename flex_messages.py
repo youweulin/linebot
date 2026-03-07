@@ -75,7 +75,7 @@ def get_welcome_flex() -> FlexSendMessage:
     return FlexSendMessage(alt_text="雲端小秘書主選單", contents=bubble)
 
 
-def get_backup_receipt_flex(filename: str, tags: str, time_str: str, file_url: str, folder_url: str = "", folder_label: str = "📁 開啟雲端資料夾") -> FlexSendMessage:
+def get_backup_receipt_flex(filename: str, tags: str, time_str: str, file_url: str, folder_url: str = "", folder_label: str = "📁 開啟雲端資料夾", footer_text: str = "") -> FlexSendMessage:
     """產生備份成功的收據 Flex Message"""
     bubble = {
         "type": "bubble",
@@ -177,26 +177,44 @@ def get_backup_receipt_flex(filename: str, tags: str, time_str: str, file_url: s
         },
     }
     # 動態建構 footer 按鈕（只有合法 URI 才建立按鈕）
-    footer_buttons = []
+    footer_contents = []
+    
+    # 插入自訂的鼓勵或警告語句
+    if footer_text:
+        # 如果包含警告字眼，文字變紅
+        color = "#FF3333" if "警告" in footer_text or "警報" in footer_text else "#666666"
+        footer_contents.append({
+            "type": "text",
+            "text": footer_text,
+            "wrap": True,
+            "color": color,
+            "size": "sm",
+            "weight": "bold",
+            "margin": "md"
+        })
+        
     if file_url and file_url.startswith("http"):
-        footer_buttons.append({
+        footer_contents.append({
             "type": "button",
             "style": "primary",
             "color": "#000000",
+            "margin": "md",
             "action": {"type": "uri", "label": "📂 開啟檔案", "uri": file_url}
         })
     if folder_url and folder_url.startswith("http"):
-        footer_buttons.append({
+        footer_contents.append({
             "type": "button",
             "style": "secondary",
+            "margin": "sm",
             "action": {"type": "uri", "label": folder_label, "uri": folder_url}
         })
-    if footer_buttons:
+        
+    if footer_contents:
         bubble["footer"] = {
             "type": "box",
             "layout": "vertical",
             "spacing": "sm",
-            "contents": footer_buttons
+            "contents": footer_contents
         }
     return FlexSendMessage(alt_text="備份成功收據", contents=bubble)
 

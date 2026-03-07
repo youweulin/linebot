@@ -466,12 +466,35 @@ def handle_text_message(event: MessageEvent):
 
         elif action == "add_expense":
             if result.get("saved"):
+                footer_text = ""
+                pf_total = result.get("propfirm_daily_total", 0)
+                amount = result.get("amount", 0)
+                
+                if pf_total > 220:
+                    footer_text = "🚫 嚴重警告：您今日的 Propfirm 花費已超過 $220 美金 (TPT 150K 日損上限)！請立刻停止交易，保護紀律，尊重市場！"
+                elif pf_total > 150:
+                    footer_text = "⚠️ 警報：您今日的 Propfirm 花費已達安全警戒線！請控制風險！"
+                elif amount > 3000:
+                    footer_text = "👀 提醒：這筆日常花費有點高喔！請注意控制預算！"
+                    
                 reply_message = flex_messages.get_backup_receipt_flex(
-                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["time_str"], "#"
+                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["time_str"], "#", footer_text=footer_text
                 )
                 save_message(user_id, "assistant", f"已記帳: {result['item']} ${result['amount']}")
             else:
                 reply_message = flex_messages.get_text_flex("❌ 記帳失敗，請稍後再試。")
+
+        elif action == "add_income":
+            if result.get("saved"):
+                footer_text = "💰 哇！又有收入進帳了，您的資產正在穩定成長中！"
+                if result.get("category") == "出金":
+                    footer_text = "🎉 太神啦！恭喜 Propfirm 成功出金！所有的努力和紀율都值得了，繼續保持！🚀"
+                reply_message = flex_messages.get_backup_receipt_flex(
+                    f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["time_str"], "#", footer_text=footer_text
+                )
+                save_message(user_id, "assistant", f"已記錄收入: {result['item']} ${result['amount']}")
+            else:
+                reply_message = flex_messages.get_text_flex("❌ 收入記錄失敗，請稍後再試。")
 
         elif action == "add_event":
             if result.get("saved"):
