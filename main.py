@@ -330,8 +330,20 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Flex
         return flex_messages.get_text_flex(f"目前沒有 {cmd} 紀錄喔！")
     
     lines = [f"🔍 最近的 {cmd} 紀錄：\n"]
+    total_expense = 0.0
+
     for r in records:
         if cmd == "記帳":
+            # 嘗試計算總計金額
+            amount_str = str(r.get('金額', '0'))
+            import re
+            clean_amount = re.sub(r'[^\d.-]', '', amount_str)
+            try:
+                if clean_amount:
+                    total_expense += float(clean_amount)
+            except Exception:
+                pass
+            
             lines.append(f"💰 {r.get('項目', '未知')} : ${r.get('金額', '0')} ({str(r.get('紀錄時間', ''))[:10]})")
         elif cmd == "待辦":
             status = str(r.get("狀態(未完成/已完成)", "未完成"))
@@ -349,6 +361,11 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Flex
             content = str(r.get("筆記內容", ""))
             short_content = (content[:30] + "...") if len(content) > 30 else content
             lines.append(f"📝 {short_content} ({str(r.get('紀錄時間', ''))[:10]})")
+            
+    if cmd == "記帳" and total_expense > 0:
+        if total_expense.is_integer():
+            total_expense = int(total_expense)
+        lines.append(f"\n📊 總計金額：${total_expense:,}")
             
     buttons = [{
         "type": "button",
