@@ -114,7 +114,10 @@ def execute(args: dict, context: dict) -> dict:
             "amount": amount,
             "category": category,
             "month_total": month_total,
-            "year_total": year_total
+            "year_total": year_total,
+            "month_label": f"{int(target_month[5:]):d}月",
+            "year_label": f"{target_year}年",
+            "is_current_month": (target_month == now.strftime("%Y/%m"))
         }
     except Exception as e:
         return {"saved": False, "item": item, "amount": amount, "category": category, "error": str(e)}

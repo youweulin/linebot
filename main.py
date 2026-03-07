@@ -520,7 +520,19 @@ def handle_text_message(event: MessageEvent):
                 if result.get("category") == "出金":
                     month_total = result.get("month_total", 0)
                     year_total = result.get("year_total", 0)
-                    footer_text = f"🎉 太神啦！恭喜 Propfirm 成功出金！所有的努力和紀律都值得了，繼續保持！🚀\n\n📅 本月出金：${month_total:,}\n🗓️ 全年累計：${year_total:,}"
+                    month_label = result.get("month_label", "本月")
+                    year_label = result.get("year_label", "全年")
+                    
+                    if result.get("is_current_month"):
+                        m_prefix = f"📅 本月({month_label})出金"
+                    else:
+                        m_prefix = f"📅 {month_label}累計出金"
+                        
+                    footer_text = (
+                        f"🎉 太神啦！恭喜 Propfirm 成功出金！所有的努力和紀律都值得了，繼續保持！🚀\n\n"
+                        f"{m_prefix}：${month_total:,}\n"
+                        f"🗓️ {year_label}累計：${year_total:,}"
+                    )
                 reply_message = flex_messages.get_backup_receipt_flex(
                     f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["transaction_date"], "#", footer_text=footer_text
                 )
