@@ -325,28 +325,39 @@ async def webhook(request: Request):
 import flex_messages
 from skills import run_skill
 
-def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> FlexSendMessage:
+def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword: str = "") -> FlexSendMessage:
     if not records:
         return flex_messages.get_text_flex(f"目前沒有 {cmd} 紀錄喔！")
     
-    lines = [f"🔍 最近的 {cmd} 紀錄：\n"]
-    net_profit = 0.0
-
+    # 針對「出金統計」的特殊處理
+    is_payout_only = (cmd == "記帳" and (keyword == "出金" or "出金" in "".join(str(r.get('類別', '')) for r in records)))
+    
+    display_cmd = "出金統計" if is_payout_only else cmd
+    lines = [f"🔍 最近的 {display_cmd} 紀錄：\n"]
+    
+    total_val = 0.0
+    
     for r in records:
         if cmd == "記帳":
-            # 嘗試計算淨利潤 (收入為正，支出為負)
             amount_str = str(r.get('金額', '0'))
             category = str(r.get('類別', ''))
             
+            # 如果是純出金統計，只顯示類別含「出金」的
+            if is_payout_only and "出金" not in category:
+                continue
+
             import re
             clean_amount = re.sub(r'[^\d.-]', '', amount_str)
             try:
                 if clean_amount:
                     val = float(clean_amount)
-                    if category in ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]:
-                        net_profit += val
+                    if is_payout_only:
+                        total_val += val
                     else:
-                        net_profit -= val
+                        if category in ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]:
+                            total_val += val
+                        else:
+                            total_val -= val
             except Exception:
                 pass
             
@@ -374,9 +385,13 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str) -> Flex
             lines.append(f"📈 交易日記 ({str(r.get('時間', ''))[:10]})\n🧠 心態: {psyc}\n✅ 優點: {pros}\n❌ 缺點: {cons}\n")
             
     if cmd == "記帳":
-        if net_profit.is_integer():
-            net_profit = int(net_profit)
-        lines.append(f"\n📊 淨利潤 (Net Profit)：${net_profit:,}")
+        if total_val.is_integer():
+            total_val = int(total_val)
+        
+        if is_payout_only:
+            lines.append(f"\n📊 總出金金額：${total_val:,}")
+        else:
+            lines.append(f"\n📊 淨利潤 (Net Profit)：${total_val:,}")
             
     buttons = [{
         "type": "button",
@@ -544,7 +559,7 @@ def handle_text_message(event: MessageEvent):
                 
                 records = None
                 if cmd == "記帳":
-                    records = get_recent_records_from_sheet("💰 記帳本", limit=5)
+                    records = get_recent_records_from_sheet("💰 記帳本", limit=10)
                 elif cmd == "待辦":
                     records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
                 elif cmd in ["排程", "行程", "行事曆"]:
@@ -553,9 +568,11 @@ def handle_text_message(event: MessageEvent):
                     records = get_recent_records_from_sheet("📇 通訊錄", limit=5)
                 elif cmd in ["筆記", "備忘錄"]:
                     records = get_recent_records_from_sheet("📝 筆記本", limit=5)
+                elif cmd == "交易":
+                    records = get_recent_records_from_sheet("📈 交易日記", limit=3)
                 
                 if records is not None:    
-                    reply_message = format_records_as_text(cmd, records, base_url)
+                    reply_message = format_records_as_text(cmd, records, base_url, keyword=result.get("keyword", ""))
                     
                 save_message(user_id, "assistant", f"為您查詢 {cmd} 紀錄。")
             else:

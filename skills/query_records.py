@@ -42,7 +42,8 @@ def execute(args: dict, context: dict) -> dict:
         "task": "待辦",
         "event": "行程",
         "contact": "通訊錄",
-        "note": "筆記"
+        "note": "筆記",
+        "journal": "交易"
     }
     
     return {
