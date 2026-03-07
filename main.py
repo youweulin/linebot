@@ -96,6 +96,32 @@ def init_db():
 init_db()
 
 
+# 交易夢想快取
+TRADING_GOALS_CACHE = {"content": "", "last_fetch": 0}
+
+def get_trading_goals_context():
+    """
+    從 Google Sheets 讀取最近一次設定的交易夢想與目標。
+    """
+    global TRADING_GOALS_CACHE
+    import time
+    now = time.time()
+    # 快取 10 分鐘，避免頻繁呼叫 gws
+    if TRADING_GOALS_CACHE["content"] and (now - TRADING_GOALS_CACHE["last_fetch"]) < 600:
+        return TRADING_GOALS_CACHE["content"]
+    
+    try:
+        records = gws_client.sheets_get_all_records("🎯 夢想與目標")
+        if records:
+            last = records[-1]
+            content = f"【交易夢想】：{last.get('夢想', '未設定')}\n【交易目標】：{last.get('目標', '未設定')}"
+            TRADING_GOALS_CACHE = {"content": content, "last_fetch": now}
+            return content
+    except Exception as e:
+        logger.warning("讀取交易夢想失敗: %s", e)
+    return ""
+
+
 def get_history(user_id: str) -> list[dict]:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute(
@@ -219,12 +245,18 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
         "2. 請你幫忙記下筆記或備忘錄。\n"
         "3. 請你幫忙記帳（花費、消費、支出）。\n"
         "4. 請你記錄「交易日記」（包含心理狀態、優點、缺點），務必呼叫 add_journal。同時請根據內容產出：(1) ACT (接納與承諾療法) 改善建議；(2) 具體的「認知解離」(Cognitive Defusion) 練習建議（例如：將念頭標籤化為『我注意到我有個想贏回來的念頭』）；(3) 提取使用者的「交易承諾」。\n"
-        "5. 請你儲存聯絡人資訊或電話號碼。\n"
-        "6. 請你幫忙排程、記錄未來的行程或會議。\n"
-        "7. 請你幫忙建立待辦事項、任務清單或提醒。\n"
+        "5. 請依照使用者的「交易夢想與目標」提供更具人性化、鼓勵性的回應與建議。\n"
+        "6. 呼叫 set_trading_goals 來設定或更新使用者的夢想與目標。\n"
+        "7. 請你儲存聯絡人資訊或電話號碼。\n"
+        "8. 請你幫忙排程、記錄未來的行程或會議。\n"
+        "9. 請你幫忙建立待辦事項、任務清單或提醒。\n"
         "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
     )
+
+    goals_context = get_trading_goals_context()
+    if goals_context:
+        system_prompt += f"\n\n使用者的長期核心動力如下，請在回應交易日記時參考並給予支持與提醒：\n{goals_context}"
 
     tools = get_all_tools()
 
@@ -569,6 +601,18 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", f"已記錄交易日記 ({result['time_str']})")
             else:
                 reply_message = flex_messages.get_text_flex("❌ 日記儲存失敗，請稍後再試。")
+
+        elif action == "set_trading_goals":
+            if result.get("saved"):
+                global TRADING_GOALS_CACHE
+                TRADING_GOALS_CACHE = {"content": "", "last_fetch": 0}  # 清除快取以讀取新值
+                goals_text = f"🌟 夢想：{result['dreams']}\n🎯 目標：{result['goals']}"
+                reply_message = flex_messages.get_backup_receipt_flex(
+                    "🎯 夢想與目標設定成功", goals_text, result["time_str"], "#", footer_text="✨ 記住你的『為什麼』，這將是你交易路上最強大的力量！"
+                )
+                save_message(user_id, "assistant", f"已更新交易目標: {result['goals']}")
+            else:
+                reply_message = flex_messages.get_text_flex("❌ 設定失敗，請稍後再試。")
 
         elif action == "add_task":
             if result.get("saved"):
