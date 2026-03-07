@@ -77,15 +77,20 @@ def execute(args: dict, context: dict) -> dict:
         except:
             trans_dt = now # fallback
             
-        target_month = trans_dt.strftime("%Y/%m")
-        target_year = trans_dt.strftime("%Y")
+        # 統一目標年/月格式以便比對
+        target_norm = gws_client.parse_date_string(transaction_date)
+        target_year = target_norm[:4]
+        target_month = target_norm[:7]
         
         records = gws_client.sheets_get_all_records(TAB_NAME)
         month_total = 0.0
         year_total = 0.0
         
         for r in records:
-            r_date = str(r.get("項目時間", ""))
+            # 統一比對用的日期格式
+            r_date_raw = str(r.get("項目時間", ""))
+            r_date_norm = gws_client.parse_date_string(r_date_raw)
+            
             r_cat = str(r.get("類別", ""))
             
             # 只計算類別為「出金」的項目
@@ -94,9 +99,9 @@ def execute(args: dict, context: dict) -> dict:
                 clean_amount = re.sub(r'[^\d.-]', '', amount_str)
                 try:
                     val = float(clean_amount) if clean_amount else 0.0
-                    if target_year in r_date:
+                    if target_year in r_date_norm:
                         year_total += val
-                        if target_month in r_date:
+                        if target_month in r_date_norm:
                             month_total += val
                 except Exception:
                     pass

@@ -203,6 +203,34 @@ def sheets_get_all_records(tab_name: str, sheet_id: str = "") -> list[dict]:
         records.append(dict(zip(headers, row_data)))
     return records
 
+
+def parse_date_string(date_str: str, default_year: int = 2026) -> str:
+    """
+    統一日期格式為 YYYY/MM/DD。
+    支援 3/2 -> 2026/03/02, 2026/3/2 -> 2026/03/02 等格式。
+    """
+    if not date_str:
+        return ""
+    
+    # 移除時間部分
+    date_part = str(date_str).split(" ")[0].replace("-", "/")
+    parts = date_part.split("/")
+    
+    try:
+        if len(parts) == 3:
+            y, m, d = parts
+            if len(y) == 2: y = f"20{y}"
+        elif len(parts) == 2:
+            y = str(default_year)
+            m, d = parts
+        else:
+            return date_part
+            
+        return f"{int(y):04d}/{int(m):02d}/{int(d):02d}"
+    except:
+        return date_part
+
+
 def sheets_get_tab_names(sheet_id: str = "") -> list[str]:
     """
     列出試算表的所有分頁名稱。

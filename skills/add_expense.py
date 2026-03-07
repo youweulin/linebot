@@ -70,17 +70,21 @@ def execute(args: dict, context: dict) -> dict:
         gws_client.get_or_create_tab(TAB_NAME, HEADERS)
         ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, "", category])
         
-        # 取得該交易日期的累積花費與 Propfirm 特定花費
+        target_norm = gws_client.parse_date_string(transaction_date)
+        
         records = gws_client.sheets_get_all_records(TAB_NAME)
         
         propfirm_daily_total = 0.0
         
         for r in records:
-            r_date = str(r.get("項目時間", ""))
+            # 統一比對用的日期格式
+            r_date_raw = str(r.get("項目時間", ""))
+            r_date_norm = gws_client.parse_date_string(r_date_raw)
+            
             r_item = str(r.get("項目", "")).lower()
             
             # 只計算該交易日期的紀錄
-            if transaction_date in r_date:
+            if target_norm == r_date_norm:
                 # 嘗試清理數字
                 amount_str = str(r.get('金額', '0'))
                 clean_amount = re.sub(r'[^\d.-]', '', amount_str)
