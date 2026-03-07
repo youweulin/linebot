@@ -218,7 +218,7 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
         "1. 請你幫忙尋找以前存過的檔案。\n"
         "2. 請你幫忙記下筆記或備忘錄。\n"
         "3. 請你幫忙記帳（花費、消費、支出）。\n"
-        "4. 請你記錄「交易日記」或檢討筆記（包含心理狀態、優點、缺點），務必呼叫 add_journal。同時請根據心理狀態與缺點，整理出一項具體的 ACT (接納與承諾療法) 改善建議，並從內容中提取使用者的「交易承諾」（例如：下週不喝酒交易、一天一個帳號）。\n"
+        "4. 請你記錄「交易日記」（包含心理狀態、優點、缺點），務必呼叫 add_journal。同時請根據內容產出：(1) ACT (接納與承諾療法) 改善建議；(2) 具體的「認知解離」(Cognitive Defusion) 練習建議（例如：將念頭標籤化為『我注意到我有個想贏回來的念頭』）；(3) 提取使用者的「交易承諾」。\n"
         "5. 請你儲存聯絡人資訊或電話號碼。\n"
         "6. 請你幫忙排程、記錄未來的行程或會議。\n"
         "7. 請你幫忙建立待辦事項、任務清單或提醒。\n"
@@ -560,6 +560,7 @@ def handle_text_message(event: MessageEvent):
                     f"✅ 優點: {result['pros']}\n"
                     f"❌ 缺點: {result['cons']}\n"
                     f"💡 ACT 建議: {result.get('act_suggestion', '無')}\n"
+                    f"👁️ 認知解離建議: {result.get('defusion_exercise', '無')}\n"
                     f"🤝 交易承諾: {result.get('commitment', '無')}"
                 )
                 reply_message = flex_messages.get_backup_receipt_flex(

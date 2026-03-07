@@ -27,6 +27,10 @@ TOOL_DEF = {
                     "type": "string",
                     "description": "根據心理狀態與缺點，提供具體的 ACT (接納與承諾療法) 改善作法標籤或簡短建議。"
                 },
+                "defusion_exercise": {
+                    "type": "string",
+                    "description": "提供一個具體的「認知解離」練習，幫使用者拉開與衝動念頭的距離。例如：想像念頭是「樹葉漂過水面」或將其標籤化為「我現在有一個『想加碼』的念頭」。"
+                },
                 "commitment": {
                     "type": "string",
                     "description": "使用者的交易承諾或下週計畫，例如：一天只用一個帳號、不喝酒交易。"
@@ -42,7 +46,7 @@ TOOL_DEF = {
 }
 
 TAB_NAME = "📈 交易日記"
-HEADERS = ["時間", "日期", "心理狀態", "優點", "缺點", "ACT 建議", "交易承諾"]
+HEADERS = ["時間", "日期", "心理狀態", "優點", "缺點", "ACT 建議", "認知解離練習", "交易承諾"]
 
 
 def execute(args: dict, context: dict) -> dict:
@@ -53,6 +57,7 @@ def execute(args: dict, context: dict) -> dict:
     pros = args.get("pros", "無")
     cons = args.get("cons", "無")
     act_suggestion = args.get("act_suggestion", "無")
+    defusion_exercise = args.get("defusion_exercise", "無")
     commitment = args.get("commitment", "無")
 
     try:
@@ -74,7 +79,7 @@ def execute(args: dict, context: dict) -> dict:
             transaction_date = transaction_date.replace("-", "/")
 
         gws_client.get_or_create_tab(TAB_NAME, HEADERS)
-        ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, psychology, pros, cons, act_suggestion, commitment])
+        ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, psychology, pros, cons, act_suggestion, defusion_exercise, commitment])
         
         return {
             "saved": ok, 
@@ -84,6 +89,7 @@ def execute(args: dict, context: dict) -> dict:
             "pros": pros, 
             "cons": cons,
             "act_suggestion": act_suggestion,
+            "defusion_exercise": defusion_exercise,
             "commitment": commitment
         }
     except Exception as e:
