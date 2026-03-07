@@ -364,21 +364,31 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword
     if not records:
         return flex_messages.get_text_flex(f"目前沒有 {cmd} 紀錄喔！")
     
-    # 針對「出金統計」的特殊處理
-    is_payout_only = (cmd == "記帳" and (keyword == "出金" or "出金" in "".join(str(r.get('類別', '')) for r in records)))
+    # 針對「出金統計」與「花費統計」的特殊處理（僅依 keyword 判定）
+    is_payout_only = (cmd == "記帳" and "出金" in keyword)
+    is_expense_only = (cmd == "記帳" and not is_payout_only and keyword in ["花費", "支出", "消費", "花費統計"])
     
-    display_cmd = "出金統計" if is_payout_only else cmd
+    if is_payout_only:
+        display_cmd = "收入總計"
+    elif is_expense_only:
+        display_cmd = "支出總計"
+    else:
+        display_cmd = cmd
     lines = [f"🔍 最近的 {display_cmd} 紀錄：\n"]
     
-    total_val = 0.0
+    income_categories = ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]
+    total_income = 0.0
+    total_expense = 0.0
     
     for r in records:
         if cmd == "記帳":
             amount_str = str(r.get('金額', '0'))
             category = str(r.get('類別', ''))
             
-            # 如果是純出金統計，只顯示類別含「出金」的
-            if is_payout_only and "出金" not in category:
+            # 過濾：出金統計只顯示收入類，花費統計排除收入類
+            if is_payout_only and category not in income_categories:
+                continue
+            if is_expense_only and category in income_categories:
                 continue
 
             import re
@@ -386,13 +396,10 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword
             try:
                 if clean_amount:
                     val = float(clean_amount)
-                    if is_payout_only:
-                        total_val += val
+                    if category in income_categories:
+                        total_income += val
                     else:
-                        if category in ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]:
-                            total_val += val
-                        else:
-                            total_val -= val
+                        total_expense += val
             except Exception:
                 pass
             
@@ -425,13 +432,18 @@ def format_records_as_text(cmd: str, records: list[dict], base_url: str, keyword
             lines.append(f"📈 交易日記 ({str(r.get('時間', ''))[:10]})\n🧠 心態: {psyc}\n✅ 優點: {pros}\n❌ 缺點: {cons}\n")
             
     if cmd == "記帳":
-        if total_val.is_integer():
-            total_val = int(total_val)
+        def _fmt(v):
+            return int(v) if v == int(v) else v
         
         if is_payout_only:
-            lines.append(f"\n📊 總出金金額：${total_val:,}")
+            lines.append(f"\n📊 總收入（出金）：${_fmt(total_income):,}")
+        elif is_expense_only:
+            lines.append(f"\n📊 總支出：${_fmt(total_expense):,}")
         else:
-            lines.append(f"\n📊 淨利潤 (Net Profit)：${total_val:,}")
+            net = total_income - total_expense
+            lines.append(f"\n💰 總收入：${_fmt(total_income):,}")
+            lines.append(f"💸 總支出：${_fmt(total_expense):,}")
+            lines.append(f"📊 淨利潤：${_fmt(net):,}")
             
     buttons = [{
         "type": "button",
@@ -632,7 +644,7 @@ def handle_text_message(event: MessageEvent):
                 records = None
                 if cmd == "記帳":
                     headers = ["時間", "項目時間", "項目", "金額", "類別"]
-                    records = get_recent_records_from_sheet("💰 記帳本", headers=headers, limit=10)
+                    records = get_recent_records_from_sheet("💰 記帳本", headers=headers, limit=9999)
                 elif cmd == "待辦":
                     records = get_recent_records_from_sheet("✅ 待辦清單", limit=5)
                 elif cmd in ["排程", "行程", "行事曆"]:
