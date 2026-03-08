@@ -550,6 +550,9 @@ def handle_text_message(event: MessageEvent):
             records = get_recent_records_from_sheet("📝 筆記本", limit=5)
         elif cmd in ["交易", "日記"]:
             records = get_recent_records_from_sheet("📈 交易日記", limit=3)
+            
+        elif cmd == "myid":
+            reply_message = flex_messages.get_text_flex(f"您的專屬 User ID 是：\n{user_id}")
         
         elif cmd in ["threads", "洞察"]:
             from skills import run_skill
