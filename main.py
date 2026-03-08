@@ -31,7 +31,7 @@ from langfuse.openai import openai as langfuse_openai
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MessageEvent, TextMessage, FlexSendMessage,
+    MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
     ImageMessage, VideoMessage, FileMessage,
 )
 import gws_client
