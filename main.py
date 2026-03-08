@@ -359,6 +359,31 @@ async def webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid signature")
     return JSONResponse(content={"status": "ok"})
 
+@app.get("/trigger_threads")
+async def trigger_threads(user_id: str):
+    """供 Zeabur Cron 等外部排程呼叫的後門 API。"""
+    try:
+        from skills import run_skill
+        logger.info(f"收到外部排程呼叫 /trigger_threads, 目標用戶: {user_id}")
+        ctx = {
+            "lookup_file_in_sheets_by_tags": lookup_file_in_sheets_by_tags,
+            "save_note_to_sheets": save_note_to_sheets,
+            "get_or_create_sheet_tab": get_or_create_sheet_tab,
+        }
+        res = run_skill("fetch_threads_data", {}, ctx)
+        
+        reply_text = ""
+        if res.get("success"):
+            reply_text = res["insight"]
+        else:
+            reply_text = f"❌ 定時自動查詢 Threads 失敗: {res.get('error')}"
+            
+        line_bot_api.push_message(user_id, flex_messages.get_text_flex(reply_text))
+        return JSONResponse(content={"status": "ok", "message": "Triggered successfully"})
+    except Exception as e:
+        logger.error(f"trigger_threads 失敗: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 
 import flex_messages
 from skills import run_skill
