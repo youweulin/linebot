@@ -40,7 +40,9 @@ def execute(args: dict, context: dict) -> dict:
     try:
         import gws_client
         from datetime import datetime
-        time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
+        import pytz
+        tw_tz = pytz.timezone('Asia/Taipei')
+        time_str = datetime.now(tw_tz).strftime("%Y/%m/%d %H:%M")
         gws_client.get_or_create_tab(TAB_NAME, HEADERS)
         ok = gws_client.sheets_append_row(TAB_NAME, [time_str, task, due_date, status])
         return {"saved": ok, "time_str": time_str, "task": task, "due_date": due_date, "status": status}

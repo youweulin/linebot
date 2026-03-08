@@ -250,6 +250,7 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
         "7. 請你儲存聯絡人資訊或電話號碼。\n"
         "8. 請你幫忙排程、記錄未來的行程或會議。\n"
         "9. 請你幫忙建立待辦事項、任務清單或提醒。\n"
+        "10. 當使用者傳送別人的貼文內容或連結，並要求你給予評論、反駁或延伸討論時，請呼叫 generate_viral_commentary 功能來產生社群風格的貼文草稿。\n"
         "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
     )
@@ -713,6 +714,13 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", f"已儲存聯絡人: {result['name']}")
             else:
                 reply_message = flex_messages.get_text_flex("❌ 聯絡人儲存失敗，請稍後再試。")
+
+        elif action == "generate_viral_commentary":
+            if result.get("success"):
+                reply_message = flex_messages.get_text_flex(result["reply_message"])
+                save_message(user_id, "assistant", "已產生社群貼文草稿")
+            else:
+                reply_message = flex_messages.get_text_flex(f"❌ 產生草稿失敗：{result.get('error')}")
 
         else:
             # 未來新增的 skill 若沒有特殊 UI，回傳純文字
