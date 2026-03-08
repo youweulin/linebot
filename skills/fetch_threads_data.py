@@ -43,18 +43,33 @@ def execute(args: dict, context: dict) -> dict:
     today = datetime.now().strftime("%Y/%m/%d")
 
     # ── 1. 抓取粉絲數 ────────────────────────────────────────────────────────
-    follower_count = "未知"
+    follower_count = 0
     try:
         data = _get(f"/{threads_user_id}/threads_insights", {
             "metric": "followers_count",
             "access_token": access_token
         })
+        logger.info(f"Threads User Insights API 回傳: {data}")
         metrics = data.get("data", [])
         for m in metrics:
             if m.get("name") == "followers_count":
-                vals = m.get("total_value", {})
-                follower_count = vals.get("value", 0)
+                # Meta API 可能用不同格式: total_value, values, 或直接 value
+                if "total_value" in m:
+                    follower_count = m["total_value"].get("value", 0)
+                elif "values" in m and m["values"]:
+                    follower_count = m["values"][0].get("value", 0)
+                else:
+                    follower_count = m.get("value", 0)
                 break
+        # 如果 API 回傳了錯誤
+        if "error" in data:
+            logger.warning(f"Insights API 錯誤: {data['error']}")
+            # 嘗試用 profile endpoint 抓
+            profile = _get("/me", {
+                "fields": "id,username,threads_profile_picture_url,threads_biography",
+                "access_token": access_token
+            })
+            follower_count = profile.get("followers_count", profile.get("follower_count", 0))
     except Exception as e:
         logger.warning(f"抓取粉絲數失敗 (非致命): {e}")
 
