@@ -382,6 +382,8 @@ async def trigger_threads(user_id: str):
         return JSONResponse(content={"status": "ok", "message": "Triggered successfully"})
     except Exception as e:
         logger.error(f"trigger_threads 失敗: {e}")
+        if hasattr(e, 'error_response'):
+            logger.error(f"LINE API 錯誤詳情: {e.error_response}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
