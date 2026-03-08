@@ -378,7 +378,7 @@ async def trigger_threads(user_id: str):
         else:
             reply_text = f"❌ 定時自動查詢 Threads 失敗: {res.get('error')}"
             
-        line_bot_api.push_message(user_id, flex_messages.get_text_flex(reply_text))
+        line_bot_api.push_message(user_id, TextSendMessage(text=reply_text))
         return JSONResponse(content={"status": "ok", "message": "Triggered successfully"})
     except Exception as e:
         logger.error(f"trigger_threads 失敗: {e}")
