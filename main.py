@@ -252,6 +252,7 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
         "9. 請你幫忙建立待辦事項、任務清單或提醒。\n"
         "10. 當使用者傳送別人的貼文內容或連結，並要求你給予評論、反駁或延伸討論時，請呼叫 generate_viral_commentary 功能來產生社群風格的貼文草稿。\n"
         "11. 當使用者確認發布(例如說「發布threads」)，如果有之前的草稿，請呼叫 publish_post 並且從最近一次由你產生、夾在兩個 `---` 之間的【高價值延伸評論草稿】中，將草稿內容『一字不漏』提取出來傳給 content 參數。絕對不可以發布使用者原本提供給你的原文！\n"
+        "12. 當使用者要求你「整理 Threads 數據」、「分析今天的 Threads」、「查看粉絲與貼文成效」時，請呼叫 fetch_threads_data 功能自動抓取並寫入試算表。\n"
         "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
     )
@@ -522,6 +523,20 @@ def handle_text_message(event: MessageEvent):
             records = get_recent_records_from_sheet("📝 筆記本", limit=5)
         elif cmd in ["交易", "日記"]:
             records = get_recent_records_from_sheet("📈 交易日記", limit=3)
+        
+        elif cmd in ["threads", "洞察"]:
+            from skills import run_skill
+            logger.info("執行捷徑: fetch_threads_data")
+            ctx = {
+                "lookup_file_in_sheets_by_tags": lookup_file_in_sheets_by_tags,
+                "save_note_to_sheets": save_note_to_sheets,
+                "get_or_create_sheet_tab": get_or_create_sheet_tab,
+            }
+            res = run_skill("fetch_threads_data", {}, ctx)
+            if res.get("success"):
+                reply_message = flex_messages.get_text_flex(res["insight"])
+            else:
+                reply_message = flex_messages.get_text_flex(f"❌ 查詢失敗: {res.get('error')}")
             
         if records is not None:
             reply_message = format_records_as_text(cmd, records, base_url)
@@ -723,6 +738,13 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", f"已產生社群貼文草稿:\n\n---\n{draft}\n---")
             else:
                 reply_message = flex_messages.get_text_flex(f"❌ 產生草稿失敗：{result.get('error')}")
+
+        elif action == "fetch_threads_data":
+            if result.get("success"):
+                reply_message = flex_messages.get_text_flex(result["insight"])
+                save_message(user_id, "assistant", "已為您整理今日 Threads 數據")
+            else:
+                reply_message = flex_messages.get_text_flex(f"❌ 分析失敗：{result.get('error')}")
 
         else:
             # 未來新增的 skill 若沒有特殊 UI，回傳純文字
