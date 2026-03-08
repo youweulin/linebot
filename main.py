@@ -272,7 +272,7 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
             tools=tools if tools else None,
             tool_choice="auto" if tools else None,
             temperature=0,
-            max_tokens=200,
+            max_tokens=1000,
         )
 
         reply_msg = response.choices[0].message
