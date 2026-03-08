@@ -12,7 +12,7 @@ TOOL_DEF = {
     "type": "function",
     "function": {
         "name": "publish_post",
-        "description": "當使用者確認並要求你自動發文、推入社群媒體（如 Threads）時，呼叫此功能。發文內容必須是一篇完整的貼文。",
+        "description": "當使用者確認並要求你自動發文、推入社群媒體（如 Threads）時，呼叫此功能。重要：如果是發布剛剛產生的草稿，請『一字不漏』地提取上一則訊息中的草稿內容作為 content，絕對不要重新改寫或擴寫。",
         "parameters": {
             "type": "object",
             "properties": {
