@@ -624,16 +624,28 @@ def handle_text_message(event: MessageEvent):
 
         elif action == "add_expense":
             if result.get("saved"):
-                footer_text = ""
                 pf_total = result.get("propfirm_daily_total", 0)
                 amount = result.get("amount", 0)
                 
+                warnings = []
                 if pf_total > 220:
-                    footer_text = "🚫 嚴重警告：您今日的 Propfirm 花費已超過 $220 美金 (TPT 150K 日損上限)！請立刻停止交易，保護紀律，尊重市場！"
+                    warnings.append("🚫 嚴重警告：您今日的 Propfirm 花費已超過 $220 美金 (TPT 150K 日損上限)！請立刻停止交易，保護紀律，尊重市場！")
                 elif pf_total > 150:
-                    footer_text = "⚠️ 警報：您今日的 Propfirm 花費已達安全警戒線！請控制風險！"
+                    warnings.append("⚠️ 警報：您今日的 Propfirm 花費已達安全警戒線！請控制風險！")
                 elif amount > 3000:
-                    footer_text = "👀 提醒：這筆日常花費有點高喔！請注意控制預算！"
+                    warnings.append("👀 提醒：這筆日常花費有點高喔！請注意控制預算！")
+                    
+                month_total = result.get("month_total", 0)
+                month_label = result.get("month_label", "本月")
+                is_current_month = result.get("is_current_month", True)
+                
+                m_prefix = f"📅 本月({month_label})已花費" if is_current_month else f"📅 {month_label}累計花費"
+                stats_text = f"{m_prefix}：${int(month_total):,}"
+                
+                if warnings:
+                    footer_text = "\n\n".join(warnings) + "\n\n" + stats_text
+                else:
+                    footer_text = stats_text
                     
                 reply_message = flex_messages.get_backup_receipt_flex(
                     f"💰 {result['category']}", f"{result['item']} ${result['amount']}", result["transaction_date"], "#", footer_text=footer_text

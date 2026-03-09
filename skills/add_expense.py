@@ -71,10 +71,16 @@ def execute(args: dict, context: dict) -> dict:
         ok = gws_client.sheets_append_row(TAB_NAME, [creation_time, transaction_date, item, amount, category])
         
         target_norm = gws_client.parse_date_string(transaction_date)
+        target_year = target_norm[:4]
+        target_month = target_norm[:7]
         
         records = gws_client.sheets_get_all_records(TAB_NAME)
         
         propfirm_daily_total = 0.0
+        month_total = 0.0
+        year_total = 0.0
+        
+        income_categories = ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]
         
         for r in records:
             # 統一比對用的日期格式
@@ -82,19 +88,25 @@ def execute(args: dict, context: dict) -> dict:
             r_date_norm = gws_client.parse_date_string(r_date_raw)
             
             r_item = str(r.get("項目", "")).lower()
+            r_cat = str(r.get("類別", ""))
             
-            # 只計算該交易日期的紀錄
-            if target_norm == r_date_norm:
-                # 嘗試清理數字
+            # 排除收入類別，剩下的都當作花費
+            if r_cat not in income_categories:
                 amount_str = str(r.get('金額', '0'))
                 clean_amount = re.sub(r'[^\d.-]', '', amount_str)
                 try:
                     val = float(clean_amount) if clean_amount else 0.0
                     
-                    # 辨識是否為 propfirm 相關花費
-                    if any(kw in r_item for kw in ["propfirm", "tpt", "考試", "通關"]):
-                        propfirm_daily_total += val
-                        
+                    if target_year in r_date_norm:
+                        year_total += val
+                        if target_month in r_date_norm:
+                            month_total += val
+                            
+                    # 原本的 propfirm 邏輯
+                    if target_norm == r_date_norm:
+                        if any(kw in r_item for kw in ["propfirm", "tpt", "考試", "通關"]):
+                            propfirm_daily_total += val
+                            
                 except Exception:
                     pass
 
@@ -105,7 +117,12 @@ def execute(args: dict, context: dict) -> dict:
             "item": item,
             "amount": amount,
             "category": category,
-            "propfirm_daily_total": propfirm_daily_total
+            "propfirm_daily_total": propfirm_daily_total,
+            "month_total": month_total,
+            "year_total": year_total,
+            "month_label": f"{int(target_month[5:7]):d}月",
+            "year_label": f"{target_year}年",
+            "is_current_month": (target_month == now.strftime("%Y/%m"))
         }
     except Exception as e:
         return {"saved": False, "item": item, "amount": amount, "category": category, "error": str(e)}
