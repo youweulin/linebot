@@ -555,7 +555,6 @@ def handle_text_message(event: MessageEvent):
             reply_message = flex_messages.get_text_flex(f"您的專屬 User ID 是：\n{user_id}")
         
         elif cmd in ["threads", "洞察"]:
-            from skills import run_skill
             logger.info("執行捷徑: fetch_threads_data")
             ctx = {
                 "lookup_file_in_sheets_by_tags": lookup_file_in_sheets_by_tags,
