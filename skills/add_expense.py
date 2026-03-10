@@ -8,7 +8,7 @@ TOOL_DEF = {
     "type": "function",
     "function": {
         "name": "add_expense",
-        "description": "當使用者提到花費、支出、付款、記帳、消費、或是打 propfirm/考試/通關 時呼叫此功能。例如：「午餐花了150」「買咖啡80元」「打propfirm花了200」「通關費 150」。",
+        "description": "當使用者提到花費、支出、付款、記帳、消費、或是打 propfirm/考試/通關 時呼叫此功能。例如：「午餐花了150」「買咖啡80元」「打propfirm花了200」「通關費 150」。\n🚨 注意：請【只從使用者最新的一句話】中提取全新的參數，絕對不可以被對話歷史影響！",
         "parameters": {
             "type": "object",
             "properties": {
