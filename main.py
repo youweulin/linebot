@@ -639,7 +639,7 @@ def handle_text_message(event: MessageEvent):
                 month_label = result.get("month_label", "本月")
                 is_current_month = result.get("is_current_month", True)
                 
-                m_prefix = f"📅 本月({month_label})已花費" if is_current_month else f"📅 {month_label}累計花費"
+                m_prefix = f"📅 本月({month_label}) Propfirm 總花費" if is_current_month else f"📅 {month_label} Propfirm 累計花費"
                 stats_text = f"{m_prefix}：${int(month_total):,}"
                 
                 if warnings:

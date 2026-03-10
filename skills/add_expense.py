@@ -104,7 +104,7 @@ def execute(args: dict, context: dict) -> dict:
                             
                     # 原本的 propfirm 邏輯
                     if target_norm == r_date_norm:
-                        if any(kw in r_item for kw in ["propfirm", "tpt", "考試", "通關"]):
+                        if any(kw in r_item for kw in ["propfirm", "tpt", "ts", "lucid", "apex", "盈透", "考試", "通關", "重置", "reset", "考號"]):
                             propfirm_daily_total += val
                             
                 except Exception:
