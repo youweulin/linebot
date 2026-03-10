@@ -80,7 +80,7 @@ def execute(args: dict, context: dict) -> dict:
         month_total = 0.0
         year_total = 0.0
         
-        income_categories = ["出金", "收入", "薪水", "投資", "兼職", "其他收入"]
+        income_categories = ["出金", "收入", "薪水", "兼職", "其他收入", "投資獲利", "投資回報", "payout"]
         
         for r in records:
             # 統一比對用的日期格式

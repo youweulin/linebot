@@ -22,8 +22,8 @@ TOOL_DEF = {
                 },
                 "category": {
                     "type": "string",
-                    "description": "收入類別，針對 Propfirm 出金務必選擇「出金」，其他可選「薪水」、「投資」、「兼職」、「其他收入」等",
-                    "enum": ["出金", "薪水", "投資", "兼職", "其他收入"]
+                    "description": "收入類別，針對 Propfirm 出金務必選擇「出金」，其他可選「薪水」、「投資獲利」、「兼職」、「其他收入」等",
+                    "enum": ["出金", "薪水", "投資獲利", "兼職", "其他收入"]
                 },
                 "transaction_date": {
                     "type": "string",
