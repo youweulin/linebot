@@ -964,35 +964,38 @@ def handle_text_message(event: MessageEvent):
 
         elif action == "generate_viral_commentary":
             if result.get("success"):
-                reply_message = flex_messages.get_text_flex(result["reply_message"])
+                # 用純文字回覆，方便使用者複製/編輯草稿
+                reply_message = TextSendMessage(text=result["reply_message"])
                 draft = result.get("draft", "")
                 save_message(user_id, "assistant", f"已產生社群貼文草稿:\n\n---\n{draft}\n---")
             else:
-                reply_message = flex_messages.get_text_flex(f"❌ 產生草稿失敗：{result.get('error')}")
+                reply_message = TextSendMessage(text=f"❌ 產生草稿失敗：{result.get('error')}")
 
         elif action == "fetch_threads_data":
             if result.get("success"):
-                reply_message = flex_messages.get_text_flex(result["insight"])
+                # 用純文字回覆，方便複製/轉貼
+                reply_message = TextSendMessage(text=result["insight"])
                 save_message(user_id, "assistant", "已為您整理今日 Threads 數據")
             else:
-                reply_message = flex_messages.get_text_flex(f"❌ 分析失敗：{result.get('error')}")
+                reply_message = TextSendMessage(text=f"❌ 分析失敗：{result.get('error')}")
 
         elif action == "search_threads_posts":
             if result.get("success"):
-                reply_message = flex_messages.get_text_flex(result.get("reply", ""))
+                # 用純文字回覆，方便使用者複製結果/連結
+                reply_message = TextSendMessage(text=result.get("reply", ""))
                 save_message(user_id, "assistant", f"已完成 Threads 關鍵字搜尋：{result.get('query','')}")
             else:
-                reply_message = flex_messages.get_text_flex(f"❌ 搜尋失敗：{result.get('error')}")
+                reply_message = TextSendMessage(text=f"❌ 搜尋失敗：{result.get('error')}")
 
         elif action == "set_user_settings":
             if result.get("saved"):
                 # settings 更新後，清掉 cache，讓下次立即生效
                 USER_SETTINGS_CACHE["last_fetch"] = 0.0
                 tz = result.get("timezone", "")
-                reply_message = flex_messages.get_text_flex(f"✅ 已更新你的時區設定為：{tz}")
+                reply_message = TextSendMessage(text=f"✅ 已更新你的時區設定為：{tz}")
                 save_message(user_id, "assistant", f"已更新時區：{tz}")
             else:
-                reply_message = flex_messages.get_text_flex(f"❌ 設定失敗：{result.get('error')}")
+                reply_message = TextSendMessage(text=f"❌ 設定失敗：{result.get('error')}")
 
         elif action == "git_commit":
             if result.get("success"):
