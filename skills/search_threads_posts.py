@@ -129,7 +129,7 @@ def execute(args: dict, context: dict) -> dict:
     today_only = args.get("today_only")
     if today_only is None:
         today_only = True
-    timezone = (args.get("timezone") or "Asia/Taipei").strip() or "Asia/Taipei"
+    timezone = (args.get("timezone") or context.get("timezone") or "Asia/Taipei").strip() or "Asia/Taipei"
 
     limit = args.get("limit")
     try:

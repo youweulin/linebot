@@ -335,6 +335,7 @@ def process_user_message_with_tools(user_id: str, user_message: str, history: li
         "12. 當使用者要求你「整理 Threads 數據」、「分析今天的 Threads」、「查看粉絲與貼文成效」時，請呼叫 fetch_threads_data 功能自動抓取並寫入試算表。\n"
         "13. 當使用者要求你「搜尋 Threads 關鍵字貼文 / 找今天的某個關鍵字 / 找 propfirm 免費帳號相關貼文或頻道」時，請呼叫 search_threads_posts。\n"
         "14. 當使用者要求你「設定時區」或「更新偏好設定」時，請呼叫 set_user_settings。\n"
+        "15. 當使用者要求你「git commit」、「提交程式碼」、「把進度推上去」、「幫我把專案推到 github」時，請呼叫 git_commit 功能。你必須根據目前的變更內容或是使用者的要求來產生一個合適的 commit 訊息。\n"
         "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "🚨 警告：提取參數時，你【絕對不可以】從歷史訊息（例如你剛剛回覆的對話）複製舊內容，你必須【只從使用者最新的一句話】中提取全新、正確的參數！\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
@@ -992,6 +993,25 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", f"已更新時區：{tz}")
             else:
                 reply_message = flex_messages.get_text_flex(f"❌ 設定失敗：{result.get('error')}")
+
+        elif action == "git_commit":
+            if result.get("success"):
+                status_emoji = "🚀" if "pushed" in result["status"] else "📦"
+                footer = f"✅ Commit 訊息: {result['commit_msg']}"
+                if result.get("error"):
+                    footer += f"\n⚠️ Push 失敗: {result['error']}"
+                
+                reply_message = flex_messages.get_backup_receipt_flex(
+                    f"{status_emoji} Git 提交成功", 
+                    f"狀態: {result['status']}", 
+                    result["time_str"], 
+                    "https://github.com/youweulin/linebot", 
+                    footer_text=footer
+                )
+                save_message(user_id, "assistant", f"Git commit 成功: {result['commit_msg']}")
+            else:
+                reply_message = flex_messages.get_text_flex(f"❌ Git 提交失敗: {result.get('error')}")
+                save_message(user_id, "assistant", f"Git commit 失敗: {result.get('error')}")
 
         else:
             # 未來新增的 skill 若沒有特殊 UI，回傳純文字

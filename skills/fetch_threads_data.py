@@ -40,7 +40,18 @@ def execute(args: dict, context: dict) -> dict:
     if not access_token or not threads_user_id:
         return {"success": False, "error": "缺少 THREADS_ACCESS_TOKEN 或 THREADS_USER_ID 環境變數"}
 
-    today = datetime.now().strftime("%Y/%m/%d")
+    tz_name = str(context.get("timezone") or "Asia/Taipei")
+    try:
+        from zoneinfo import ZoneInfo
+
+        today = datetime.now(ZoneInfo(tz_name)).strftime("%Y/%m/%d")
+    except Exception:
+        try:
+            import pytz
+
+            today = datetime.now(pytz.timezone(tz_name)).strftime("%Y/%m/%d")
+        except Exception:
+            today = datetime.now().strftime("%Y/%m/%d")
 
     def _get_with_auto_refresh(path: str, params: dict) -> dict:
         nonlocal access_token
