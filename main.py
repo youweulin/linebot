@@ -253,6 +253,7 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
         "10. 當使用者傳送別人的貼文內容或連結，並要求你給予評論、反駁或延伸討論時，請呼叫 generate_viral_commentary 功能來產生社群風格的貼文草稿。\n"
         "11. 當使用者確認發布(例如說「發布threads」)，如果有之前的草稿，請呼叫 publish_post 並且從最近一次由你產生、夾在兩個 `---` 之間的【高價值延伸評論草稿】中，將草稿內容『一字不漏』提取出來傳給 content 參數。絕對不可以發布使用者原本提供給你的原文！\n"
         "12. 當使用者要求你「整理 Threads 數據」、「分析今天的 Threads」、「查看粉絲與貼文成效」時，請呼叫 fetch_threads_data 功能自動抓取並寫入試算表。\n"
+        "13. 當使用者要求你「搜尋 Threads 關鍵字貼文 / 找今天的某個關鍵字 / 找 propfirm 免費帳號相關貼文或頻道」時，請呼叫 search_threads_posts。\n"
         "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "🚨 警告：提取參數時，你【絕對不可以】從歷史訊息（例如你剛剛回覆的對話）複製舊內容，你必須【只從使用者最新的一句話】中提取全新、正確的參數！\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
@@ -787,6 +788,13 @@ def handle_text_message(event: MessageEvent):
                 save_message(user_id, "assistant", "已為您整理今日 Threads 數據")
             else:
                 reply_message = flex_messages.get_text_flex(f"❌ 分析失敗：{result.get('error')}")
+
+        elif action == "search_threads_posts":
+            if result.get("success"):
+                reply_message = flex_messages.get_text_flex(result.get("reply", ""))
+                save_message(user_id, "assistant", f"已完成 Threads 關鍵字搜尋：{result.get('query','')}")
+            else:
+                reply_message = flex_messages.get_text_flex(f"❌ 搜尋失敗：{result.get('error')}")
 
         else:
             # 未來新增的 skill 若沒有特殊 UI，回傳純文字
