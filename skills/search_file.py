@@ -28,11 +28,27 @@ def execute(args: dict, context: dict) -> dict:
     回傳: {"found": True/False, "url": "...", "keywords": "..."}
     """
     keywords = args.get("keywords", "")
-    lookup_fn = context.get("lookup_file_in_sheets_by_tags")
+    lookup_many_fn = context.get("lookup_files_in_sheets_by_tags")
+    lookup_one_fn = context.get("lookup_file_in_sheets_by_tags")
 
-    if lookup_fn:
-        url = lookup_fn(keywords)
+    if lookup_many_fn:
+        user_id = context.get("user_id")
+        try:
+            candidates = lookup_many_fn(keywords, 5, user_id)
+        except TypeError:
+            # 向下相容：舊函式簽名
+            candidates = lookup_many_fn(keywords)
+        if candidates:
+            return {
+                "found": True,
+                "url": candidates[0].get("url", ""),
+                "keywords": keywords,
+                "candidates": candidates,
+            }
+
+    if lookup_one_fn:
+        url = lookup_one_fn(keywords)
         if url:
-            return {"found": True, "url": url, "keywords": keywords}
+            return {"found": True, "url": url, "keywords": keywords, "candidates": [{"url": url}]}
 
-    return {"found": False, "url": "", "keywords": keywords}
+    return {"found": False, "url": "", "keywords": keywords, "candidates": []}

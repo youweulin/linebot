@@ -12,8 +12,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-import requests
-
 try:
     from zoneinfo import ZoneInfo  # py3.9+
 except Exception:  # pragma: no cover
@@ -79,8 +77,9 @@ class _TimeWindow:
 
 
 def _get(path: str, params: dict[str, Any]) -> dict[str, Any]:
-    res = requests.get(f"{THREADS_API_BASE}{path}", params=params, timeout=20)
-    return res.json()
+    from skills._threads_api import threads_get
+
+    return threads_get(path, params, timeout=20)
 
 
 def _today_window(timezone: str) -> _TimeWindow:
@@ -162,10 +161,25 @@ def execute(args: dict, context: dict) -> dict:
 
     data = _get("/keyword_search", params)
     if "error" in data:
-        err = data.get("error") or {}
-        msg = err.get("message") or str(err) or "Threads API 回傳錯誤"
-        hint = "（常見原因：Access Token 沒有開啟/授權 `threads_keyword_search` 權限）"
-        return {"success": False, "error": f"{msg} {hint}"}
+        from skills._threads_api import error_message, is_token_error, refresh_access_token, set_runtime_access_token
+
+        # 若是 token 過期/失效，嘗試自動 refresh 一次（只影響目前行程；不會自動更新 Zeabur 環境變數）
+        if is_token_error(data):
+            refreshed = refresh_access_token(access_token)
+            new_token = str(refreshed.get("access_token") or "").strip()
+            if new_token and "error" not in refreshed:
+                set_runtime_access_token(new_token)
+                access_token = new_token
+                params["access_token"] = access_token
+                data = _get("/keyword_search", params)
+
+        if "error" in data:
+            msg = error_message(data)
+            hint = (
+                "（你的 Access Token 可能已過期，或尚未授權 `threads_keyword_search` 權限；"
+                "若是部署在 Zeabur，請到環境變數更新 THREADS_ACCESS_TOKEN）"
+            )
+            return {"success": False, "error": f"{msg} {hint}"}
 
     items = data.get("data") or []
     if not isinstance(items, list):
@@ -234,4 +248,3 @@ def execute(args: dict, context: dict) -> dict:
             for it in show
         ],
     }
-

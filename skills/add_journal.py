@@ -65,7 +65,8 @@ def execute(args: dict, context: dict) -> dict:
         from datetime import datetime
         import pytz
         
-        tw_tz = pytz.timezone('Asia/Taipei')
+        tz_name = str(context.get("timezone") or "Asia/Taipei")
+        tw_tz = pytz.timezone(tz_name)
         now = datetime.now(tw_tz)
         
         # 紀錄時間 (System Time)

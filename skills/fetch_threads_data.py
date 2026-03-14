@@ -6,7 +6,6 @@ Skill: fetch_threads_data
 
 import os
 import logging
-import requests
 from datetime import datetime
 from openai import OpenAI
 import gws_client
@@ -30,8 +29,9 @@ THREADS_API_BASE = "https://graph.threads.net/v1.0"
 
 def _get(path: str, params: dict) -> dict:
     """帶 timeout 的 GET 請求，避免無限等待。"""
-    res = requests.get(f"{THREADS_API_BASE}{path}", params=params, timeout=15)
-    return res.json()
+    from skills._threads_api import threads_get
+
+    return threads_get(path, params, timeout=15)
 
 def execute(args: dict, context: dict) -> dict:
     access_token = os.environ.get("THREADS_ACCESS_TOKEN")
@@ -42,13 +42,30 @@ def execute(args: dict, context: dict) -> dict:
 
     today = datetime.now().strftime("%Y/%m/%d")
 
+    def _get_with_auto_refresh(path: str, params: dict) -> dict:
+        nonlocal access_token
+        data = _get(path, params)
+        if "error" in data:
+            from skills._threads_api import is_token_error, refresh_access_token, set_runtime_access_token
+
+            if is_token_error(data):
+                refreshed = refresh_access_token(access_token)
+                new_token = str(refreshed.get("access_token") or "").strip()
+                if new_token and "error" not in refreshed:
+                    set_runtime_access_token(new_token)
+                    access_token = new_token
+                    params = dict(params)
+                    params["access_token"] = access_token
+                    data = _get(path, params)
+        return data
+
     # ── 1. 抓取粉絲數 ────────────────────────────────────────────────────────
     # 官方文件：GET /{user_id}/threads_insights?metric=followers_count
     # 回傳格式：{"data": [{"name": "followers_count", "period": "day", "total_value": {"value": 123}}]}
     # 注意：/me endpoint 不含 followers_count 欄位，不可做 fallback
     follower_count = 0
     try:
-        data = _get(f"/{threads_user_id}/threads_insights", {
+        data = _get_with_auto_refresh(f"/{threads_user_id}/threads_insights", {
             "metric": "followers_count",
             "access_token": access_token
         })
@@ -78,7 +95,7 @@ def execute(args: dict, context: dict) -> dict:
     summary_text = f"今日粉絲數：{follower_count}\n"
 
     try:
-        posts_raw = _get(f"/{threads_user_id}/threads", {
+        posts_raw = _get_with_auto_refresh(f"/{threads_user_id}/threads", {
             "fields": "id,text,timestamp,like_count,reply_count",
             "access_token": access_token
         })
@@ -95,7 +112,7 @@ def execute(args: dict, context: dict) -> dict:
             # 嘗試抓貼文 insights
             # 官方文件回傳格式：{"data": [{"name": "likes", "values": [{"value": 100}]}]}
             try:
-                insights_raw = _get(f"/{post_id}/insights", {
+                insights_raw = _get_with_auto_refresh(f"/{post_id}/insights", {
                     "metric": "views,likes,replies,reposts,quotes,shares",
                     "access_token": access_token
                 })

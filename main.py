@@ -95,6 +95,86 @@ def init_db():
         conn.commit()
 init_db()
 
+# ─────────────────────────────────────────────────────────────────────────────
+# User Settings (Google Sheets)
+# ─────────────────────────────────────────────────────────────────────────────
+USER_SETTINGS_TAB = "⚙️ 設定"
+USER_SETTINGS_HEADERS = ["更新時間", "user_id", "timezone"]
+INBOX_INDEX_TAB = "📥 Inbox 索引"
+INBOX_INDEX_HEADERS = ["時間", "user_id", "類型", "原檔名", "存檔名", "MIME", "標籤", "摘要", "URL", "message_id"]
+
+USER_SETTINGS_CACHE: dict[str, dict] = {"by_user": {}, "last_fetch": 0.0}
+
+def _get_tzinfo(timezone: str):
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(timezone)
+    except Exception:
+        try:
+            import pytz
+
+            return pytz.timezone(timezone)
+        except Exception:
+            return None
+
+def get_user_timezone(user_id: str, default: str = "Asia/Taipei") -> str:
+    """
+    從 Sheets「⚙️ 設定」取得每個 user 的 timezone（取最新一筆）。
+    小量用戶下直接拉全表，並快取 10 分鐘。
+    """
+    if not user_id:
+        return default
+
+    import time
+    now = time.time()
+    if (now - USER_SETTINGS_CACHE["last_fetch"]) < 600 and user_id in USER_SETTINGS_CACHE["by_user"]:
+        return USER_SETTINGS_CACHE["by_user"].get(user_id, default)
+
+    try:
+        gws_client.get_or_create_tab(USER_SETTINGS_TAB, USER_SETTINGS_HEADERS)
+        records = gws_client.sheets_get_all_records(USER_SETTINGS_TAB)
+        by_user: dict[str, str] = {}
+        for r in records:
+            uid = str(r.get("user_id", "")).strip()
+            tz = str(r.get("timezone", "")).strip()
+            if uid and tz:
+                by_user[uid] = tz  # 依序覆蓋，最後一筆即最新
+        USER_SETTINGS_CACHE["by_user"] = by_user
+        USER_SETTINGS_CACHE["last_fetch"] = now
+        return by_user.get(user_id, default) or default
+    except Exception as e:
+        logger.warning("讀取 user settings 失敗: %s", e)
+        return default
+
+def now_for_user(user_id: str) -> datetime:
+    tz = get_user_timezone(user_id)
+    tzinfo = _get_tzinfo(tz)
+    if tzinfo:
+        return datetime.now(tzinfo)
+    return datetime.now()
+
+def append_inbox_index(
+    user_id: str,
+    kind: str,
+    original_filename: str,
+    stored_filename: str,
+    mime_type: str,
+    tags: str,
+    summary: str,
+    url: str,
+    message_id: str,
+    ts_display: str,
+):
+    try:
+        gws_client.get_or_create_tab(INBOX_INDEX_TAB, INBOX_INDEX_HEADERS)
+        gws_client.sheets_append_row(
+            INBOX_INDEX_TAB,
+            [ts_display, user_id, kind, original_filename, stored_filename, mime_type, tags, summary, url, message_id],
+        )
+    except Exception as e:
+        logger.warning("寫入 Inbox 索引失敗 (non-fatal): %s", e)
+
 
 # 交易夢想快取
 TRADING_GOALS_CACHE = {"content": "", "last_fetch": 0}
@@ -230,14 +310,14 @@ def analyze_image_with_vision(image_bytes: bytes) -> str:
         return "自動備份圖片"
 
 
-def process_user_message_with_tools(user_message: str, history: list[dict]) -> dict:
+def process_user_message_with_tools(user_id: str, user_message: str, history: list[dict]) -> dict:
     """
     Agent Router 核心：使用 OpenAI Function Calling + Skills Registry 決定要執行什麼動作。
     回傳: {"action": "chat"|skill_name, "args": {...}, "reply": "..."}
     """
     from skills import get_all_tools
 
-    today = datetime.now().strftime("%Y/%m/%d")
+    today = now_for_user(user_id).strftime("%Y/%m/%d")
     system_prompt = (
         f"今天的日期是 {today}。\n"
         "你是一個萬能的雲端助理。使用者可能會：\n"
@@ -254,6 +334,7 @@ def process_user_message_with_tools(user_message: str, history: list[dict]) -> d
         "11. 當使用者確認發布(例如說「發布threads」)，如果有之前的草稿，請呼叫 publish_post 並且從最近一次由你產生、夾在兩個 `---` 之間的【高價值延伸評論草稿】中，將草稿內容『一字不漏』提取出來傳給 content 參數。絕對不可以發布使用者原本提供給你的原文！\n"
         "12. 當使用者要求你「整理 Threads 數據」、「分析今天的 Threads」、「查看粉絲與貼文成效」時，請呼叫 fetch_threads_data 功能自動抓取並寫入試算表。\n"
         "13. 當使用者要求你「搜尋 Threads 關鍵字貼文 / 找今天的某個關鍵字 / 找 propfirm 免費帳號相關貼文或頻道」時，請呼叫 search_threads_posts。\n"
+        "14. 當使用者要求你「設定時區」或「更新偏好設定」時，請呼叫 set_user_settings。\n"
         "如果有對應的工具 (tools)，請務必呼叫該工具來完成任務。\n"
         "🚨 警告：提取參數時，你【絕對不可以】從歷史訊息（例如你剛剛回覆的對話）複製舊內容，你必須【只從使用者最新的一句話】中提取全新、正確的參數！\n"
         "如果使用者只是單純閒聊（例如：你好、早安、謝謝），請不要呼叫任何工具，直接友善地回覆一小段話即可。"
@@ -336,6 +417,94 @@ def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
     except Exception as e:
         logger.error("Google Sheets 查詢失敗: %s", e)
         return None
+
+
+def lookup_files_in_sheets_by_tags(search_query: str, limit: int = 5, user_id: str | None = None) -> list[dict]:
+    """
+    Top-N 檔案搜尋（比 lookup_file_in_sheets_by_tags 更完整）。
+    - 會先嘗試在 Inbox 索引查詢（含 user_id）
+    - 也會 fallback 到舊的 GOOGLE_SHEET_NAME 索引
+    回傳格式: [{"score": int, "filename": str, "tags": str, "url": str, "time": str}, ...]
+    """
+    try:
+        limit = int(limit)
+    except Exception:
+        limit = 5
+    limit = max(1, min(limit, 10))
+
+    keywords = [k.strip().lower() for k in str(search_query).split(",") if k.strip()]
+    if not keywords:
+        return []
+
+    def score_row(text: str) -> int:
+        t = text.lower()
+        return sum(1 for k in keywords if k in t)
+
+    candidates: list[dict] = []
+
+    # 1) Inbox index（優先）
+    try:
+        gws_client.get_or_create_tab(INBOX_INDEX_TAB, INBOX_INDEX_HEADERS)
+        records = gws_client.sheets_get_all_records(INBOX_INDEX_TAB)
+        for r in records:
+            if user_id and str(r.get("user_id", "")).strip() and str(r.get("user_id", "")).strip() != user_id:
+                continue
+            url = str(r.get("URL", "")).strip()
+            if not url:
+                continue
+            text_blob = " ".join(str(v) for v in r.values() if v is not None)
+            s = score_row(text_blob)
+            if s <= 0:
+                continue
+            candidates.append(
+                {
+                    "score": s,
+                    "filename": str(r.get("存檔名", "")).strip() or str(r.get("原檔名", "")).strip(),
+                    "tags": str(r.get("標籤", "")).strip(),
+                    "url": url,
+                    "time": str(r.get("時間", "")).strip(),
+                    "source": "inbox",
+                }
+            )
+    except Exception as e:
+        logger.warning("Inbox 索引查詢失敗 (non-fatal): %s", e)
+
+    # 2) 舊索引（GOOGLE_SHEET_NAME）
+    try:
+        values = gws_client.sheets_get_all_values(GOOGLE_SHEET_NAME)
+        if values and len(values) >= 2:
+            headers = values[0]
+            for row in values[1:]:
+                row_data = row + [""] * (len(headers) - len(row))
+                r = dict(zip(headers, row_data))
+                all_values_str = " ".join(str(v) for v in r.values()).lower()
+                s = score_row(all_values_str)
+                if s <= 0:
+                    continue
+                url = str(r.get("File URL", r.get("file url", r.get("URL", "")))).strip()
+                if not url:
+                    for v in r.values():
+                        sv = str(v).strip()
+                        if sv.startswith("http"):
+                            url = sv
+                            break
+                if not url:
+                    continue
+                candidates.append(
+                    {
+                        "score": s,
+                        "filename": str(r.get("Filename", r.get("檔名", ""))).strip(),
+                        "tags": str(r.get("Tags", r.get("標籤", ""))).strip(),
+                        "url": url,
+                        "time": str(r.get("時間", r.get("Time", ""))).strip(),
+                        "source": "legacy",
+                    }
+                )
+    except Exception as e:
+        logger.warning("舊索引查詢失敗 (non-fatal): %s", e)
+
+    candidates.sort(key=lambda x: (x.get("score", 0), x.get("time", "")), reverse=True)
+    return candidates[:limit]
 
 def save_note_to_sheets(content: str) -> str:
     """將文字筆記直接寫入 Google Sheets"""
@@ -588,7 +757,7 @@ def handle_text_message(event: MessageEvent):
     save_message(user_id, "user", user_message)
 
     # 核心大腦：Function Calling + Skills Registry
-    decision = process_user_message_with_tools(user_message, history)
+    decision = process_user_message_with_tools(user_id, user_message, history)
     action = decision.get("action")
     logger.info("[%s] AI 決策動作: %s", user_id, decision)
 
@@ -600,8 +769,11 @@ def handle_text_message(event: MessageEvent):
         # 動態執行 skill
         context = {
             "lookup_file_in_sheets_by_tags": lookup_file_in_sheets_by_tags,
+            "lookup_files_in_sheets_by_tags": lookup_files_in_sheets_by_tags,
             "save_note_to_sheets": save_note_to_sheets,
             "get_or_create_sheet_tab": get_or_create_sheet_tab,
+            "user_id": user_id,
+            "timezone": get_user_timezone(user_id),
         }
         result = run_skill(action, decision.get("args", {}), context)
         logger.info("[%s] Skill '%s' 回傳: %s", user_id, action, result)
@@ -609,8 +781,23 @@ def handle_text_message(event: MessageEvent):
         # 根據 skill 回傳結果產生對應的 Flex Message
         if action == "search_file":
             if result.get("found"):
-                reply_message = flex_messages.get_search_result_flex(result["keywords"], result["url"])
-                save_message(user_id, "assistant", f"找到了！{result['url']}")
+                candidates = result.get("candidates") or []
+                if isinstance(candidates, list) and len(candidates) > 1:
+                    lines = [f"我找到 {len(candidates)} 個可能結果（顯示前 {min(len(candidates), 5)} 個）："]
+                    for i, c in enumerate(candidates[:5], start=1):
+                        fn = str(c.get("filename") or "").strip()
+                        url = str(c.get("url") or "").strip()
+                        tag = str(c.get("tags") or "").strip()
+                        head = f"{i}) {fn}".strip() if fn else f"{i})"
+                        if tag:
+                            head = f"{head}｜{tag}"
+                        if url:
+                            lines.append(f"{head}\n{url}")
+                    reply_message = flex_messages.get_text_flex("\n".join(lines).strip())
+                    save_message(user_id, "assistant", f"找到多筆結果：{result.get('keywords','')}")
+                else:
+                    reply_message = flex_messages.get_search_result_flex(result["keywords"], result["url"])
+                    save_message(user_id, "assistant", f"找到了！{result['url']}")
             else:
                 reply_message = flex_messages.get_text_flex(NOT_FOUND_MESSAGE)
                 save_message(user_id, "assistant", NOT_FOUND_MESSAGE)
@@ -796,6 +983,16 @@ def handle_text_message(event: MessageEvent):
             else:
                 reply_message = flex_messages.get_text_flex(f"❌ 搜尋失敗：{result.get('error')}")
 
+        elif action == "set_user_settings":
+            if result.get("saved"):
+                # settings 更新後，清掉 cache，讓下次立即生效
+                USER_SETTINGS_CACHE["last_fetch"] = 0.0
+                tz = result.get("timezone", "")
+                reply_message = flex_messages.get_text_flex(f"✅ 已更新你的時區設定為：{tz}")
+                save_message(user_id, "assistant", f"已更新時區：{tz}")
+            else:
+                reply_message = flex_messages.get_text_flex(f"❌ 設定失敗：{result.get('error')}")
+
         else:
             # 未來新增的 skill 若沒有特殊 UI，回傳純文字
             reply_message = flex_messages.get_text_flex(str(result))
@@ -853,7 +1050,7 @@ def handle_image_message(event: MessageEvent):
     user_id = event.source.user_id
     msg_id = event.message.id
 
-    now = datetime.now()
+    now = now_for_user(user_id)
     ts_str = now.strftime("%Y%m%d_%H%M%S")
     timestamp_display = now.strftime("%Y/%m/%d %H:%M")
 
@@ -874,6 +1071,18 @@ def handle_image_message(event: MessageEvent):
 
         # 寫入檔案索引
         append_to_google_sheet(timestamp_display, filename, tags, link)
+        append_inbox_index(
+            user_id=user_id,
+            kind="image:namecard",
+            original_filename=filename,
+            stored_filename=filename,
+            mime_type="image/jpeg",
+            tags=tags,
+            summary="名片",
+            url=link,
+            message_id=msg_id,
+            ts_display=timestamp_display,
+        )
 
         # 寫入通訊錄分頁
         from skills import run_skill
@@ -898,6 +1107,18 @@ def handle_image_message(event: MessageEvent):
         # 普通圖片：走原本的標籤流程
         tags = analyze_image_with_vision(raw_bytes) if raw_bytes else "無標籤"
         append_to_google_sheet(timestamp_display, filename, tags, link)
+        append_inbox_index(
+            user_id=user_id,
+            kind="image",
+            original_filename=filename,
+            stored_filename=filename,
+            mime_type="image/jpeg",
+            tags=tags,
+            summary="",
+            url=link,
+            message_id=msg_id,
+            ts_display=timestamp_display,
+        )
 
         receipt_flex = flex_messages.get_backup_receipt_flex(
             filename, tags, timestamp_display, link,
@@ -912,14 +1133,27 @@ def handle_image_message(event: MessageEvent):
 def handle_video_message(event: MessageEvent):
     user_id = event.source.user_id
     msg_id = event.message.id
-    ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    timestamp_display = datetime.now().strftime("%Y/%m/%d %H:%M")
+    now = now_for_user(user_id)
+    ts_str = now.strftime("%Y%m%d_%H%M%S")
+    timestamp_display = now.strftime("%Y/%m/%d %H:%M")
     filename = f"VID_{ts_str}.mp4"
 
     link, _ = backup_media_to_drive(msg_id, "video/mp4", filename)
     if link:
         tags = "影片"
         append_to_google_sheet(timestamp_display, filename, tags, link)
+        append_inbox_index(
+            user_id=user_id,
+            kind="video",
+            original_filename=filename,
+            stored_filename=filename,
+            mime_type="video/mp4",
+            tags=tags,
+            summary="",
+            url=link,
+            message_id=msg_id,
+            ts_display=timestamp_display,
+        )
         receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
         line_bot_api.reply_message(event.reply_token, receipt_flex)
     else:
@@ -932,13 +1166,26 @@ def handle_file_message(event: MessageEvent):
     msg_id = event.message.id
     original_filename = event.message.file_name
     
-    timestamp_display = datetime.now().strftime("%Y/%m/%d %H:%M")
-    filename = f"FILE_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{original_filename}"
+    now = now_for_user(user_id)
+    timestamp_display = now.strftime("%Y/%m/%d %H:%M")
+    filename = f"FILE_{now.strftime('%Y%m%d_%H%M%S')}_{original_filename}"
 
     link, _ = backup_media_to_drive(msg_id, "application/octet-stream", filename)
     if link:
         tags = f"檔案, {original_filename}"
         append_to_google_sheet(timestamp_display, filename, tags, link)
+        append_inbox_index(
+            user_id=user_id,
+            kind="file",
+            original_filename=original_filename,
+            stored_filename=filename,
+            mime_type="application/octet-stream",
+            tags=tags,
+            summary="",
+            url=link,
+            message_id=msg_id,
+            ts_display=timestamp_display,
+        )
         receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
         line_bot_api.reply_message(event.reply_token, receipt_flex)
     else:

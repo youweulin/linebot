@@ -38,7 +38,8 @@ def execute(args: dict, context: dict) -> dict:
         from datetime import datetime
         import pytz
         
-        tw_tz = pytz.timezone('Asia/Taipei')
+        tz_name = str(context.get("timezone") or "Asia/Taipei")
+        tw_tz = pytz.timezone(tz_name)
         time_str = datetime.now(tw_tz).strftime("%Y/%m/%d %H:%M")
         
         gws_client.get_or_create_tab(TAB_NAME, HEADERS)

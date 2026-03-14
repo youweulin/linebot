@@ -25,7 +25,7 @@ TAB_NAME = "📝 筆記本"
 HEADERS = ["時間", "內容"]
 
 
-def execute(args: dict, context: dict) -> dict:
+def execute(args: dict, context: dict) -> dict:  
     """
     執行筆記儲存，寫入獨立的「📝 筆記本」分頁。
     """
@@ -35,10 +35,12 @@ def execute(args: dict, context: dict) -> dict:
         import gws_client
         from datetime import datetime
         import pytz
-        tw_tz = pytz.timezone('Asia/Taipei')
+
+        tz_name = str(context.get("timezone") or "Asia/Taipei")
+        tw_tz = pytz.timezone(tz_name)
         time_str = datetime.now(tw_tz).strftime("%Y/%m/%d %H:%M")
-        gws_client.get_or_create_tab(TAB_NAME, HEADERS)
-        ok = gws_client.sheets_append_row(TAB_NAME, [time_str, content])
-        return {"saved": ok, "time_str": time_str, "content": content}
-    except Exception as e:
-        return {"saved": False, "time_str": "", "content": content, "error": str(e)}
+        gws_client.get_or_create_tab(TAB_NAME, HEADERS)  
+        ok = gws_client.sheets_append_row(TAB_NAME, [time_str, content])  
+        return {"saved": ok, "time_str": time_str, "content": content}  
+    except Exception as e:  
+        return {"saved": False, "time_str": "", "content": content, "error": str(e)}  
