@@ -16,6 +16,7 @@ import io
 import json
 import logging
 import os
+import re
 import sqlite3
 import tempfile
 from contextlib import contextmanager
@@ -32,7 +33,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, FlexSendMessage,
-    ImageMessage, VideoMessage, FileMessage,
+    ImageMessage, VideoMessage, FileMessage, AudioMessage,
 )
 import gws_client
 import flex_messages
@@ -99,9 +100,13 @@ init_db()
 # User Settings (Google Sheets)
 # ─────────────────────────────────────────────────────────────────────────────
 USER_SETTINGS_TAB = "⚙️ 設定"
-USER_SETTINGS_HEADERS = ["更新時間", "user_id", "timezone"]
+USER_SETTINGS_HEADERS = ["更新時間", "user_id", "timezone", "mode", "translate_target_lang", "receipt_autobook"]
 INBOX_INDEX_TAB = "📥 Inbox 索引"
 INBOX_INDEX_HEADERS = ["時間", "user_id", "類型", "原檔名", "存檔名", "MIME", "標籤", "摘要", "URL", "message_id"]
+TRANSLATION_TAB = "🌐 翻譯記錄"
+TRANSLATION_HEADERS = ["時間", "user_id", "來源", "目標", "原文", "譯文", "URL"]
+RECEIPT_TAB = "🧾 收據"
+RECEIPT_HEADERS = ["時間", "user_id", "商家", "日期", "總額", "幣別", "信心", "摘要", "URL"]
 
 USER_SETTINGS_CACHE: dict[str, dict] = {"by_user": {}, "last_fetch": 0.0}
 
@@ -118,34 +123,108 @@ def _get_tzinfo(timezone: str):
         except Exception:
             return None
 
-def get_user_timezone(user_id: str, default: str = "Asia/Taipei") -> str:
+def _parse_bool(v) -> bool | None:
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in {"true", "1", "yes", "y"}:
+        return True
+    if s in {"false", "0", "no", "n"}:
+        return False
+    return None
+
+
+def get_user_settings(user_id: str) -> dict:
     """
-    從 Sheets「⚙️ 設定」取得每個 user 的 timezone（取最新一筆）。
+    從 Sheets「⚙️ 設定」取得每個 user 的設定（合併該 user 的所有紀錄，非空值覆蓋）。
     小量用戶下直接拉全表，並快取 10 分鐘。
     """
+    defaults = {
+        "timezone": "Asia/Taipei",
+        "mode": "auto",  # auto|receipt|translate
+        "translate_target_lang": "zh-TW",
+        "receipt_autobook": False,
+    }
     if not user_id:
-        return default
+        return defaults
 
     import time
     now = time.time()
-    if (now - USER_SETTINGS_CACHE["last_fetch"]) < 600 and user_id in USER_SETTINGS_CACHE["by_user"]:
-        return USER_SETTINGS_CACHE["by_user"].get(user_id, default)
+    cached = USER_SETTINGS_CACHE.get("by_user", {})
+    if (now - USER_SETTINGS_CACHE["last_fetch"]) < 600 and user_id in cached:
+        s = dict(defaults)
+        s.update(cached.get(user_id, {}))
+        return s
 
     try:
         gws_client.get_or_create_tab(USER_SETTINGS_TAB, USER_SETTINGS_HEADERS)
-        records = gws_client.sheets_get_all_records(USER_SETTINGS_TAB)
-        by_user: dict[str, str] = {}
-        for r in records:
-            uid = str(r.get("user_id", "")).strip()
-            tz = str(r.get("timezone", "")).strip()
-            if uid and tz:
-                by_user[uid] = tz  # 依序覆蓋，最後一筆即最新
+        values = gws_client.sheets_get_all_values(USER_SETTINGS_TAB)
+        if not values or len(values) < 2:
+            return defaults
+
+        header = [str(x).strip() for x in values[0]]
+        idx = {name: i for i, name in enumerate(header) if name}
+
+        def _col(row: list, key: str, fallback_i: int) -> str:
+            i = idx.get(key, None)
+            if i is not None and i < len(row):
+                return str(row[i]).strip()
+            if fallback_i < len(row):
+                return str(row[fallback_i]).strip()
+            return ""
+
+        by_user: dict[str, dict] = {}
+        for row in values[1:]:
+            if not isinstance(row, list):
+                continue
+            uid = _col(row, "user_id", 1)
+            if not uid:
+                continue
+            cur = by_user.get(uid) or {}
+
+            tz = _col(row, "timezone", 2)
+            if tz:
+                cur["timezone"] = tz
+
+            mode = _col(row, "mode", 3).lower()
+            if mode:
+                cur["mode"] = mode
+
+            tgt = _col(row, "translate_target_lang", 4)
+            if tgt:
+                cur["translate_target_lang"] = tgt
+
+            rab_raw = _col(row, "receipt_autobook", 5)
+            rab = _parse_bool(rab_raw) if rab_raw != "" else None
+            if rab is not None:
+                cur["receipt_autobook"] = rab
+
+            by_user[uid] = cur
+
         USER_SETTINGS_CACHE["by_user"] = by_user
         USER_SETTINGS_CACHE["last_fetch"] = now
-        return by_user.get(user_id, default) or default
+
+        s = dict(defaults)
+        s.update(by_user.get(user_id, {}))
+        return s
     except Exception as e:
         logger.warning("讀取 user settings 失敗: %s", e)
-        return default
+        return defaults
+
+
+def get_user_timezone(user_id: str) -> str:
+    return str(get_user_settings(user_id).get("timezone") or "Asia/Taipei")
+
+
+def get_user_mode(user_id: str) -> str:
+    mode = str(get_user_settings(user_id).get("mode") or "auto").lower()
+    return mode if mode in {"auto", "receipt", "translate"} else "auto"
+
+
+def get_user_translate_target(user_id: str) -> str:
+    return str(get_user_settings(user_id).get("translate_target_lang") or "zh-TW")
 
 def now_for_user(user_id: str) -> datetime:
     tz = get_user_timezone(user_id)
@@ -153,6 +232,22 @@ def now_for_user(user_id: str) -> datetime:
     if tzinfo:
         return datetime.now(tzinfo)
     return datetime.now()
+
+
+def append_translation_record(ts_display: str, user_id: str, source: str, target: str, src_text: str, out_text: str, url: str = ""):
+    try:
+        gws_client.get_or_create_tab(TRANSLATION_TAB, TRANSLATION_HEADERS)
+        gws_client.sheets_append_row(TRANSLATION_TAB, [ts_display, user_id, source, target, src_text, out_text, url])
+    except Exception as e:
+        logger.warning("寫入翻譯記錄失敗 (non-fatal): %s", e)
+
+
+def append_receipt_record(ts_display: str, user_id: str, merchant: str, date: str, total: str, currency: str, confidence: str, summary: str, url: str):
+    try:
+        gws_client.get_or_create_tab(RECEIPT_TAB, RECEIPT_HEADERS)
+        gws_client.sheets_append_row(RECEIPT_TAB, [ts_display, user_id, merchant, date, total, currency, confidence, summary, url])
+    except Exception as e:
+        logger.warning("寫入收據記錄失敗 (non-fatal): %s", e)
 
 def append_inbox_index(
     user_id: str,
@@ -374,6 +469,89 @@ def process_user_message_with_tools(user_id: str, user_message: str, history: li
     except Exception as e:
         logger.error("Function Calling 分析失敗: %s", e)
         return {"action": "chat", "reply": "抱歉，我現在大腦卡卡的，請稍後再試。"}
+
+
+def translate_text_with_ai(text: str, target_lang: str) -> str:
+    """
+    純文字翻譯（不加評論、不加前後贅字），保留原本文字的換行與格式。
+    """
+    prompt = (
+        f"請把使用者的內容翻譯成 {target_lang}。\n"
+        "規則：只輸出翻譯結果；保留換行/列表/符號；不要加任何解釋、不要加標題。\n"
+        "如果原文已經是目標語言，請做語氣更自然的潤飾即可。\n"
+    )
+    response = openai_client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": "你是一個精準的翻譯器。"},
+            {"role": "user", "content": prompt + "\n\n原文：\n" + text},
+        ],
+        temperature=0,
+        max_tokens=1500,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+def extract_receipt_info(image_bytes: bytes) -> dict | None:
+    """
+    從收據/發票圖片抽取欄位（merchant/date/total/currency/confidence/summary）。
+    回傳 dict 或 None（無法判斷/解析失敗）。
+    """
+    try:
+        base64_image = base64.b64encode(image_bytes).decode("utf-8")
+        response = openai_client.chat.completions.create(
+            model=OPENAI_VISION_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是收據/發票辨識助理。請先判斷圖片是否為收據/發票。\n"
+                        "- 如果【不是】，請回傳純 JSON：{\"is_receipt\": false}\n"
+                        "- 如果【是】，請回傳純 JSON："
+                        "{\"is_receipt\": true, \"merchant\": \"商家\", \"date\": \"YYYY/MM/DD\", \"total\": \"數字或字串\", "
+                        "\"currency\": \"TWD|USD|...\", \"confidence\": 0.0, \"summary\": \"一句話摘要\"}\n"
+                        "只回傳 JSON，不要加任何其他文字。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "請辨識這張圖片："},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "low"}},
+                    ],
+                },
+            ],
+            max_tokens=400,
+            temperature=0,
+        )
+        raw = (response.choices[0].message.content or "").strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return None
+        if not data.get("is_receipt"):
+            return None
+        return data
+    except Exception as e:
+        logger.warning("收據辨識失敗 (non-fatal): %s", e)
+        return None
+
+
+def maybe_switch_mode_by_text(user_id: str, text: str) -> str | None:
+    """
+    回傳要切換的 mode（auto/receipt/translate）或 None。
+    """
+    t = str(text or "").strip().lower()
+    if not t:
+        return None
+    if any(k in t for k in ["切到收據", "收據模式", "收據翻譯", "發票模式"]):
+        return "receipt"
+    if any(k in t for k in ["切到翻譯", "翻譯模式", "翻譯一下模式"]):
+        return "translate"
+    if any(k in t for k in ["切回自動", "自動模式", "一般模式", "取消模式"]):
+        return "auto"
+    return None
 
 
 def lookup_file_in_sheets_by_tags(search_query: str) -> str | None:
@@ -725,6 +903,36 @@ def handle_text_message(event: MessageEvent):
             
         elif cmd == "myid":
             reply_message = flex_messages.get_text_flex(f"您的專屬 User ID 是：\n{user_id}")
+
+        elif cmd in ["mode", "模式"]:
+            s = get_user_settings(user_id)
+            reply_message = TextSendMessage(
+                text=(
+                    f"⚙️ 目前模式：{s.get('mode','auto')}\n"
+                    f"🕒 時區：{s.get('timezone','Asia/Taipei')}\n"
+                    f"🌐 翻譯目標：{s.get('translate_target_lang','zh-TW')}\n\n"
+                    "切換：#收據模式 / #翻譯模式 / #自動模式\n"
+                    "（也可直接說：切到收據模式 / 切到翻譯模式 / 切回自動模式）"
+                )
+            )
+
+        elif cmd in ["收據模式", "receipt"]:
+            ctx = {"user_id": user_id, "timezone": get_user_timezone(user_id), "get_or_create_sheet_tab": get_or_create_sheet_tab}
+            res = run_skill("set_user_settings", {"mode": "receipt"}, ctx)
+            USER_SETTINGS_CACHE["last_fetch"] = 0.0
+            reply_message = TextSendMessage(text="✅ 已切換到收據模式：之後你傳的圖片會優先以收據/發票方式辨識。")
+
+        elif cmd in ["翻譯模式", "translate"]:
+            ctx = {"user_id": user_id, "timezone": get_user_timezone(user_id), "get_or_create_sheet_tab": get_or_create_sheet_tab}
+            res = run_skill("set_user_settings", {"mode": "translate"}, ctx)
+            USER_SETTINGS_CACHE["last_fetch"] = 0.0
+            reply_message = TextSendMessage(text="✅ 已切換到翻譯模式：之後你傳的文字/語音會優先做翻譯。")
+
+        elif cmd in ["自動模式", "auto"]:
+            ctx = {"user_id": user_id, "timezone": get_user_timezone(user_id), "get_or_create_sheet_tab": get_or_create_sheet_tab}
+            res = run_skill("set_user_settings", {"mode": "auto"}, ctx)
+            USER_SETTINGS_CACHE["last_fetch"] = 0.0
+            reply_message = TextSendMessage(text="✅ 已切回自動模式。")
         
         elif cmd in ["threads", "洞察"]:
             logger.info("執行捷徑: fetch_threads_data")
@@ -754,8 +962,33 @@ def handle_text_message(event: MessageEvent):
                 # reply_token 已被消耗，不能再 reply，只記 log
             return
 
+    # 非捷徑：先看是否要切換模式（避免依賴 AI 判斷）
+    mode_to = maybe_switch_mode_by_text(user_id, user_message)
+    if mode_to:
+        ctx = {"user_id": user_id, "timezone": get_user_timezone(user_id), "get_or_create_sheet_tab": get_or_create_sheet_tab}
+        run_skill("set_user_settings", {"mode": mode_to}, ctx)
+        USER_SETTINGS_CACHE["last_fetch"] = 0.0
+        text_map = {"auto": "✅ 已切回自動模式。", "receipt": "✅ 已切換到收據模式。", "translate": "✅ 已切換到翻譯模式。"}
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=text_map.get(mode_to, "✅ 模式已更新。")))
+        return
+
     history = get_history(user_id)
     save_message(user_id, "user", user_message)
+
+    # 翻譯模式：不走 Function Calling，直接翻譯回覆
+    if get_user_mode(user_id) == "translate":
+        target = get_user_translate_target(user_id)
+        try:
+            translated = translate_text_with_ai(user_message, target)
+            now = now_for_user(user_id)
+            ts_display = now.strftime("%Y/%m/%d %H:%M")
+            append_translation_record(ts_display, user_id, "auto", target, user_message, translated, "")
+            save_message(user_id, "assistant", translated)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=translated))
+        except Exception as e:
+            logger.error("翻譯失敗: %s", e)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 翻譯失敗，請稍後再試。"))
+        return
 
     # 核心大腦：Function Calling + Skills Registry
     decision = process_user_message_with_tools(user_id, user_message, history)
@@ -991,9 +1224,20 @@ def handle_text_message(event: MessageEvent):
             if result.get("saved"):
                 # settings 更新後，清掉 cache，讓下次立即生效
                 USER_SETTINGS_CACHE["last_fetch"] = 0.0
-                tz = result.get("timezone", "")
-                reply_message = TextSendMessage(text=f"✅ 已更新你的時區設定為：{tz}")
-                save_message(user_id, "assistant", f"已更新時區：{tz}")
+                parts = []
+                if result.get("timezone"):
+                    parts.append(f"🕒 時區：{result.get('timezone')}")
+                if result.get("mode"):
+                    parts.append(f"🧭 模式：{result.get('mode')}")
+                if result.get("translate_target_lang"):
+                    parts.append(f"🌐 翻譯目標：{result.get('translate_target_lang')}")
+                if result.get("receipt_autobook") is not None:
+                    parts.append(f"🧾 自動記帳：{result.get('receipt_autobook')}")
+                msg = "✅ 設定已更新"
+                if parts:
+                    msg += "\n" + "\n".join(parts)
+                reply_message = TextSendMessage(text=msg)
+                save_message(user_id, "assistant", msg)
             else:
                 reply_message = TextSendMessage(text=f"❌ 設定失敗：{result.get('error')}")
 
@@ -1083,6 +1327,50 @@ def handle_image_message(event: MessageEvent):
     if not link:
         line_bot_api.reply_message(event.reply_token, flex_messages.get_text_flex("❌ 備份寫入失敗"))
         return
+
+    # 收據模式：優先以收據/發票方式辨識
+    if get_user_mode(user_id) == "receipt" and raw_bytes:
+        info = extract_receipt_info(raw_bytes)
+        if info:
+            merchant = str(info.get("merchant", "")).strip()
+            date = str(info.get("date", "")).strip()
+            total = str(info.get("total", "")).strip()
+            currency = str(info.get("currency", "")).strip() or "TWD"
+            confidence = str(info.get("confidence", "")).strip()
+            summary = str(info.get("summary", "")).strip()
+
+            tags = "收據"
+            if merchant:
+                tags = f"收據, {merchant}"
+            append_to_google_sheet(timestamp_display, filename, tags, link)
+            append_inbox_index(
+                user_id=user_id,
+                kind="image:receipt",
+                original_filename=filename,
+                stored_filename=filename,
+                mime_type="image/jpeg",
+                tags=tags,
+                summary=summary,
+                url=link,
+                message_id=msg_id,
+                ts_display=timestamp_display,
+            )
+            append_receipt_record(timestamp_display, user_id, merchant, date, total, currency, confidence, summary, link)
+
+            lines = ["🧾 收據辨識結果"]
+            if merchant:
+                lines.append(f"商家：{merchant}")
+            if date:
+                lines.append(f"日期：{date}")
+            if total:
+                lines.append(f"總額：{total} {currency}".strip())
+            if confidence:
+                lines.append(f"信心：{confidence}")
+            if summary:
+                lines.append(f"摘要：{summary}")
+            lines.append(link)
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="\n".join(lines).strip()))
+            return
 
     # 名片偵測：先看看是不是名片
     namecard_info = extract_namecard_info(raw_bytes) if raw_bytes else None
@@ -1183,6 +1471,84 @@ def handle_video_message(event: MessageEvent):
         line_bot_api.reply_message(event.reply_token, flex_messages.get_text_flex("❌ 影片備份失敗"))
 
 
+@handler.add(MessageEvent, message=AudioMessage)
+def handle_audio_message(event: MessageEvent):
+    user_id = event.source.user_id
+    msg_id = event.message.id
+    now = now_for_user(user_id)
+    ts_str = now.strftime("%Y%m%d_%H%M%S")
+    timestamp_display = now.strftime("%Y/%m/%d %H:%M")
+    filename = f"AUD_{ts_str}.m4a"
+
+    link, raw_bytes = backup_media_to_drive(msg_id, "audio/m4a", filename)
+    if not link:
+        line_bot_api.reply_message(event.reply_token, flex_messages.get_text_flex("❌ 語音備份失敗"))
+        return
+
+    tags = "語音"
+    append_to_google_sheet(timestamp_display, filename, tags, link)
+    append_inbox_index(
+        user_id=user_id,
+        kind="audio",
+        original_filename=filename,
+        stored_filename=filename,
+        mime_type="audio/m4a",
+        tags=tags,
+        summary="",
+        url=link,
+        message_id=msg_id,
+        ts_display=timestamp_display,
+    )
+
+    if get_user_mode(user_id) != "translate" or not raw_bytes:
+        receipt_flex = flex_messages.get_backup_receipt_flex(
+            filename,
+            tags,
+            timestamp_display,
+            link,
+            folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "",
+        )
+        line_bot_api.reply_message(event.reply_token, receipt_flex)
+        return
+
+    # 翻譯模式：語音 → 逐字稿 → 翻譯
+    tmp_path = os.path.join(tempfile.gettempdir(), filename)
+    try:
+        with open(tmp_path, "wb") as f:
+            f.write(raw_bytes)
+
+        from openai import OpenAI
+
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        transcribe_model = os.getenv("OPENAI_TRANSCRIBE_MODEL", "whisper-1")
+        with open(tmp_path, "rb") as f:
+            tr = client.audio.transcriptions.create(model=transcribe_model, file=f)
+        transcript = getattr(tr, "text", None) or str(tr)
+        transcript = str(transcript).strip()
+
+        target = get_user_translate_target(user_id)
+        translated = translate_text_with_ai(transcript, target) if transcript else ""
+
+        append_translation_record(timestamp_display, user_id, "auto", target, transcript, translated, link)
+        save_message(user_id, "assistant", translated or transcript)
+
+        msg_lines = []
+        if transcript:
+            msg_lines.append("🗣️ 逐字稿：\n" + transcript)
+        if translated:
+            msg_lines.append(f"\n🌐 翻譯（{target}）：\n" + translated)
+        msg_lines.append("\n" + link)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="\n".join(msg_lines).strip()))
+    except Exception as e:
+        logger.error("語音翻譯失敗: %s", e, exc_info=True)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 已備份語音：{link}\n❌ 語音翻譯失敗，請稍後再試。"))
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 @handler.add(MessageEvent, message=FileMessage)
 def handle_file_message(event: MessageEvent):
     user_id = event.source.user_id
@@ -1193,7 +1559,7 @@ def handle_file_message(event: MessageEvent):
     timestamp_display = now.strftime("%Y/%m/%d %H:%M")
     filename = f"FILE_{now.strftime('%Y%m%d_%H%M%S')}_{original_filename}"
 
-    link, _ = backup_media_to_drive(msg_id, "application/octet-stream", filename)
+    link, raw_bytes = backup_media_to_drive(msg_id, "application/octet-stream", filename)
     if link:
         tags = f"檔案, {original_filename}"
         append_to_google_sheet(timestamp_display, filename, tags, link)
@@ -1209,7 +1575,53 @@ def handle_file_message(event: MessageEvent):
             message_id=msg_id,
             ts_display=timestamp_display,
         )
-        receipt_flex = flex_messages.get_backup_receipt_flex(filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else "")
+        # 翻譯模式：嘗試抽文字並翻譯後儲存
+        if get_user_mode(user_id) == "translate" and raw_bytes:
+            ext = os.path.splitext(original_filename or "")[1].lower()
+            extracted = ""
+
+            if ext in [".txt", ".md", ".csv", ".log", ".json", ".yaml", ".yml"]:
+                extracted = raw_bytes.decode("utf-8", errors="ignore").strip()
+
+            elif ext == ".pdf":
+                try:
+                    from pypdf import PdfReader
+
+                    reader = PdfReader(io.BytesIO(raw_bytes))
+                    texts = []
+                    for p in reader.pages[:5]:
+                        t = p.extract_text() or ""
+                        if t.strip():
+                            texts.append(t.strip())
+                    extracted = "\n\n".join(texts).strip()
+                except Exception as e:
+                    logger.warning("PDF 抽字失敗 (non-fatal): %s", e)
+                    extracted = ""
+
+            if extracted:
+                # 防止超大檔案爆 token
+                extracted = extracted[:15000]
+                target = get_user_translate_target(user_id)
+                try:
+                    translated = translate_text_with_ai(extracted, target)
+                    append_translation_record(timestamp_display, user_id, "auto", target, extracted, translated, link)
+                    save_message(user_id, "assistant", translated)
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=translated))
+                except Exception as e:
+                    logger.error("檔案翻譯失敗: %s", e, exc_info=True)
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 已備份檔案：{link}\n❌ 檔案翻譯失敗，請稍後再試。"))
+                return
+
+            # 抽不到字（常見：掃描 PDF）
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"✅ 已備份檔案：{link}\n⚠️ 目前只支援『可選取文字』的 PDF/純文字檔；若是掃描 PDF，請改傳截圖或轉成文字。"),
+            )
+            return
+
+        receipt_flex = flex_messages.get_backup_receipt_flex(
+            filename, tags, timestamp_display, link, folder_url=f"https://drive.google.com/drive/folders/{GOOGLE_DRIVE_FOLDER_ID}" if GOOGLE_DRIVE_FOLDER_ID else ""
+        )
         line_bot_api.reply_message(event.reply_token, receipt_flex)
     else:
         line_bot_api.reply_message(event.reply_token, flex_messages.get_text_flex("❌ 檔案備份失敗"))

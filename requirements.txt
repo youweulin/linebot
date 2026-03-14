@@ -7,3 +7,4 @@ python-dotenv==1.0.1
 langfuse>=2.57.0
 pytz
 threadspipepy
+pypdf>=5.0.0
